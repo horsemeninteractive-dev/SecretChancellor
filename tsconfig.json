@@ -1,20 +1,22 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext", // Changed from ESNext for better Node compatibility
-    "moduleResolution": "NodeNext", // Changed from bundler to work with Node
-    "outDir": "./dist", // Tells TS to put compiled files in a folder named 'dist'
+    "module": "CommonJS", 
+    "moduleResolution": "node",
+    "outDir": "./dist",
     "rootDir": "./",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
     "allowJs": true,
     "jsx": "react-jsx",
-    "esModuleInterop": true, // Helps with importing libraries like express
-    "noEmit": false, // CRITICAL: Change this to false so it actually builds files
+    "esModuleInterop": true,
+    "noEmit": false,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
     }
   },
-  "include": ["server.ts", "src/**/*"], // Ensure it knows which files to compile
+  "include": ["server.ts", "src/**/*"],
   "exclude": ["node_modules", "dist"]
 }
