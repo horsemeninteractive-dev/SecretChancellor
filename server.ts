@@ -8,7 +8,8 @@ import axios from "axios";
 import { supabase, isSupabaseConfigured } from "./src/lib/supabase";
 import { GameState, Player, Policy, Role, ExecutiveAction, User, UserStats, RoomInfo, AIPersonality } from "./src/types";
 
-const PORT = 3000;
+// Look for process.env.PORT, otherwise default to 8080 for Cloud Run
+const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET || "secret-hitler-secret-key";
 
 const AI_BOTS: { name: string; avatarUrl: string; personality: AIPersonality }[] = [
@@ -1755,7 +1756,7 @@ async function startServer() {
   }
 
   httpServer.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server successfully running on port ${PORT}`);
   });
 }
 
