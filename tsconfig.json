@@ -1,26 +1,20 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "experimentalDecorators": true,
-    "useDefineForClassFields": false,
-    "module": "ESNext",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "module": "NodeNext", // Changed from ESNext for better Node compatibility
+    "moduleResolution": "NodeNext", // Changed from bundler to work with Node
+    "outDir": "./dist", // Tells TS to put compiled files in a folder named 'dist'
+    "rootDir": "./",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "isolatedModules": true,
-    "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
+    "esModuleInterop": true, // Helps with importing libraries like express
+    "noEmit": false, // CRITICAL: Change this to false so it actually builds files
     "paths": {
-      "@/*": [
-        "./*"
-      ]
-    },
-    "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+      "@/*": ["./*"]
+    }
+  },
+  "include": ["server.ts", "src/**/*"], // Ensure it knows which files to compile
+  "exclude": ["node_modules", "dist"]
 }
