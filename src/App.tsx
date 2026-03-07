@@ -2,7 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { socket } from './socket';
 import { GameState, Player, Role, Policy, User } from './types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Users, Shield, Gavel, Scroll, MessageSquare, LogOut, Play, Check, X, AlertTriangle, Mic, MicOff, Send, Trophy, Coins, User as UserIcon, Skull, Eye, Zap, Target, Search, Bird } from 'lucide-react';
+import { Users, Shield, Gavel, Scroll, MessageSquare, LogOut, Play, Check, X, AlertTriangle, Mic, MicOff, Send, Trophy, Coins, User as UserIcon, Skull, Eye, Zap, Target, Search, Bird, BookOpen, Music, VolumeX, Smile } from 'lucide-react';
+import EmojiPicker, { Theme, EmojiStyle, Emoji } from 'emoji-picker-react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { Auth } from './components/Auth';
@@ -13,6 +14,53 @@ import { getFrameStyles, getPolicyStyles, getVoteStyles } from './lib/cosmetics'
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
+
+// Helper to convert emoji character to unified hex string
+const charToUnified = (char: string) => {
+  return Array.from(char)
+    .map(c => c.codePointAt(0)!.toString(16))
+    .filter(hex => hex !== 'fe0f')
+    .join('-');
+};
+
+// Component to render text with unified emojis
+const EmojiRenderer = ({ text }: { text: string }) => {
+  // Check for Intl.Segmenter support (modern browsers)
+  if (typeof Intl === 'undefined' || !('Segmenter' in Intl)) {
+    return <>{text}</>;
+  }
+
+  try {
+    const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+    const segments = Array.from(segmenter.segment(text));
+    
+    return (
+      <>
+        {segments.map((s, i) => {
+          const char = s.segment;
+          // Basic emoji detection: check if it contains any non-ASCII characters
+          // or matches the emoji regex.
+          const isEmoji = /\p{Emoji_Presentation}/u.test(char) || /\p{Emoji}\uFE0F/u.test(char) || /[\u{1F1E6}-\u{1F1FF}]{2}/u.test(char);
+          
+          if (isEmoji) {
+            return (
+              <span key={i} className="inline-block align-middle mx-0.5 leading-none">
+                <Emoji 
+                  unified={charToUnified(char)} 
+                  size={16} 
+                  emojiStyle={EmojiStyle.APPLE} 
+                />
+              </span>
+            );
+          }
+          return char;
+        })}
+      </>
+    );
+  } catch (e) {
+    return <>{text}</>;
+  }
+};
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -49,7 +97,7 @@ export default function App() {
   // Sound effects
   const playSound = (url: string) => {
     const audio = new Audio(url);
-    audio.volume = 0.3;
+    audio.volume = soundVolume / 100;
     audio.play().catch(() => {});
   };
 
@@ -69,42 +117,6 @@ export default function App() {
 
   useEffect(() => {
     if (!gameState) return;
-
-    // Check if we need to show declaration UI
-    const me = gameState.players.find(p => p.id === socket.id);
-    if (me) {
-      const alreadyDeclared = gameState.declarations.some(d => d.playerId === socket.id);
-      const willWin = (gameState.lastEnactedPolicy?.type === 'Liberal' && gameState.liberalPolicies === 4) ||
-                      (gameState.lastEnactedPolicy?.type === 'Fascist' && gameState.fascistPolicies === 5);
-
-      if (!alreadyDeclared && !willWin && gameState.phase !== 'GameOver') {
-        // Both President and Chancellor declare after policy is enacted
-        const policyJustEnacted = gameState.lastEnactedPolicy && 
-                                 gameState.lastEnactedPolicy.timestamp > prevLastEnactedTimestamp.current;
-
-        if (policyJustEnacted && me.isPresident && !showPolicyAnim) {
-          setDeclarationType('President');
-          setShowDeclarationUI(true);
-          setDeclLibs(0);
-          setDeclFas(0);
-        }
-
-        // Chancellor declares after President
-        const presidentDeclared = gameState.declarations.some(d => d.type === 'President');
-        if (presidentDeclared && me.isChancellor && !showPolicyAnim) {
-          setDeclarationType('Chancellor');
-          setShowDeclarationUI(true);
-          setDeclLibs(0);
-          setDeclFas(0);
-        }
-      } else {
-        setShowDeclarationUI(false);
-      }
-    }
-
-    if (gameState.lastEnactedPolicy) {
-      prevLastEnactedTimestamp.current = gameState.lastEnactedPolicy.timestamp;
-    }
 
     // Vote sound
     const currentVotes = gameState.players.filter(p => p.vote).length;
@@ -171,10 +183,94 @@ export default function App() {
     };
   }, []);
   const [isDossierOpen, setIsDossierOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [showDeclarationUI, setShowDeclarationUI] = useState(false);
   const [declarationType, setDeclarationType] = useState<'President' | 'Chancellor' | null>(null);
   const [declLibs, setDeclLibs] = useState(0);
   const [declFas, setDeclFas] = useState(0);
+  const [lastSeenPolicyTime, setLastSeenPolicyTime] = useState(0);
+  const [showPolicyAnim, setShowPolicyAnim] = useState(false);
+  // Ref tracks current animation state so Effect 1 can read it without stale closure
+  const showPolicyAnimRef = useRef(false);
+  // Pending declaration: set as soon as we know it's needed, shown after animation clears
+  const pendingDeclarationRef = useRef<'President' | 'Chancellor' | null>(null);
+  // Track when the human player became chancellor this round, to guard against
+  // showing the declaration modal before a policy has actually been played
+  const chancellorSinceRef = useRef<number>(0);
+  const wasChancellorRef   = useRef(false);
+
+  // Keep ref in sync with state so other effects can read it without stale closures
+  useEffect(() => { showPolicyAnimRef.current = showPolicyAnim; }, [showPolicyAnim]);
+
+  // Determine whether I need to declare, and open the modal at the right moment.
+  // Runs when policy timestamp, declarations count, phase, or animation state changes.
+  useEffect(() => {
+    if (!gameState) return;
+    const me = gameState.players.find(p => p.id === socket.id);
+    if (!me) return;
+
+    const alreadyDeclaredByMe = gameState.declarations.some(d => d.playerId === socket.id);
+    if (alreadyDeclaredByMe || gameState.phase === 'GameOver') {
+      pendingDeclarationRef.current = null;
+      setShowDeclarationUI(false);
+      return;
+    }
+
+    // Record the moment the player becomes chancellor each round
+    if (me.isChancellor && !wasChancellorRef.current) {
+      chancellorSinceRef.current = Date.now();
+    }
+    wasChancellorRef.current = !!me.isChancellor;
+
+    const policyTimestamp = gameState.lastEnactedPolicy?.timestamp ?? 0;
+    const policyIsNew = policyTimestamp > prevLastEnactedTimestamp.current;
+    // Always advance the watermark — even when not president — so a policy from a
+    // previous round never looks "new" when the player next becomes president.
+    if (policyTimestamp > prevLastEnactedTimestamp.current) {
+      prevLastEnactedTimestamp.current = policyTimestamp;
+    }
+
+    let needed: 'President' | 'Chancellor' | null = null;
+
+    if (policyIsNew && me.isPresident) {
+      needed = 'President';
+    }
+
+    const presidentDeclared = gameState.declarations.some(d => d.type === 'President');
+    if (presidentDeclared && me.isChancellor) {
+      // Only valid if a policy was actually enacted AFTER this player became chancellor
+      // (guards against triggerAIDeclarations firing before chancellor plays)
+      const policyEnactedThisTerm = (gameState.lastEnactedPolicy?.timestamp ?? 0) > chancellorSinceRef.current;
+      if (policyEnactedThisTerm) needed = 'Chancellor';
+    }
+
+    if (needed) {
+      if (!showPolicyAnimRef.current) {
+        // Animation already finished — open immediately
+        pendingDeclarationRef.current = null;
+        setDeclarationType(needed);
+        setDeclLibs(0);
+        setDeclFas(0);
+        setShowDeclarationUI(true);
+      } else {
+        // Animation still playing — queue for Effect 2
+        pendingDeclarationRef.current = needed;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState?.lastEnactedPolicy?.timestamp, gameState?.declarations?.length, gameState?.phase, showPolicyAnim]);
+
+  // Show the declaration modal as soon as the policy animation finishes
+  useEffect(() => {
+    if (!showPolicyAnim && pendingDeclarationRef.current) {
+      const type = pendingDeclarationRef.current;
+      pendingDeclarationRef.current = null;
+      setDeclarationType(type);
+      setDeclLibs(0);
+      setDeclFas(0);
+      setShowDeclarationUI(true);
+    }
+  }, [showPolicyAnim]);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
   useEffect(() => {
@@ -183,20 +279,232 @@ export default function App() {
     }
   }, [isChatOpen, gameState?.messages.length]);
 
-  const hasNewMessages = gameState && !isChatOpen && gameState.messages.slice(lastSeenMessageCount).some(m => m.type !== 'round_separator');
+  const hasNewMessages = gameState && !isChatOpen && gameState.messages.slice(lastSeenMessageCount).some(m => m.type !== 'round_separator' && m.type !== 'declaration' && m.type !== 'failed_election');
   const [isVoiceActive, setIsVoiceActive] = useState(false);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const peersRef = useRef<Record<string, RTCPeerConnection>>({});
   const audioContextRef = useRef<AudioContext | null>(null);
+  const [isMusicOn, setIsMusicOn] = useState(() => localStorage.getItem('isMusicOn') !== 'false');
+  const [isSoundOn, setIsSoundOn] = useState(() => localStorage.getItem('isSoundOn') !== 'false');
+  const [musicVolume, setMusicVolume] = useState(() => parseInt(localStorage.getItem('musicVolume') || '50'));
+  const [soundVolume, setSoundVolume] = useState(() => parseInt(localStorage.getItem('soundVolume') || '50'));
+  const [isFullscreen, setIsFullscreen] = useState(() => !!document.fullscreenElement);
+
+  useEffect(() => {
+    localStorage.setItem('isMusicOn', isMusicOn.toString());
+    localStorage.setItem('isSoundOn', isSoundOn.toString());
+    localStorage.setItem('musicVolume', musicVolume.toString());
+    localStorage.setItem('soundVolume', soundVolume.toString());
+  }, [isMusicOn, isSoundOn, musicVolume, soundVolume]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const chatGhostRef = useRef<HTMLDivElement>(null);
+
+  const handleChatScroll = () => {
+    if (chatInputRef.current && chatGhostRef.current) {
+      chatGhostRef.current.scrollLeft = chatInputRef.current.scrollLeft;
+    }
+  };
+  const musicRef = useRef<{
+    ctx: AudioContext;
+    master: GainNode;
+    stop: () => void;
+  } | null>(null);
   const [chatText, setChatText] = useState('');
   const [investigationResult, setInvestigationResult] = useState<{ targetName: string; role: Role } | null>(null);
-  const [lastSeenPolicyTime, setLastSeenPolicyTime] = useState(0);
-  const [showPolicyAnim, setShowPolicyAnim] = useState(false);
   const logEndRef = useRef<HTMLDivElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const speakingTimers = useRef<Record<string, NodeJS.Timeout>>({});
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+
+  // ── Procedural ambient music engine ─────────────────────────────────────
+  useEffect(() => {
+    if (!isMusicOn) {
+      musicRef.current?.stop();
+      musicRef.current = null;
+      return;
+    }
+
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0, ctx.currentTime);
+    master.gain.linearRampToValueAtTime(musicVolume / 100, ctx.currentTime + 3);
+    master.connect(ctx.destination);
+
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    const nodes: AudioNode[] = [];
+
+    // Helper: create a simple reverb convolver
+    const makeReverb = (duration = 2.5, decay = 2.0) => {
+      const len = ctx.sampleRate * duration;
+      const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let c = 0; c < 2; c++) {
+        const d = buf.getChannelData(c);
+        for (let i = 0; i < len; i++) {
+          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+        }
+      }
+      const conv = ctx.createConvolver();
+      conv.buffer = buf;
+      return conv;
+    };
+
+    const reverb = makeReverb(3, 2.2);
+    const reverbGain = ctx.createGain();
+    reverbGain.gain.value = 0.35;
+    reverb.connect(reverbGain);
+    reverbGain.connect(master);
+    nodes.push(reverb, reverbGain);
+
+    // Helper: play a note with a soft piano-like attack/decay
+    const playNote = (freq: number, startTime: number, duration: number, vol: number, type: OscillatorType = 'sine') => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, startTime);
+      gain.gain.linearRampToValueAtTime(vol, startTime + 0.08);
+      gain.gain.exponentialRampToValueAtTime(vol * 0.4, startTime + 0.4);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
+      osc.connect(gain);
+      gain.connect(master);
+      gain.connect(reverb);
+      osc.start(startTime);
+      osc.stop(startTime + duration + 0.05);
+    };
+
+    // Helper: continuous pad oscillator with slow LFO
+    const makePad = (freq: number, vol: number, lfoRate = 0.08) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.value = freq;
+      gain.gain.value = 0;
+      lfo.type = 'sine';
+      lfo.frequency.value = lfoRate;
+      lfoGain.gain.value = freq * 0.003;
+      lfo.connect(lfoGain);
+      lfoGain.connect(osc.frequency);
+
+      // Soft lowpass
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 800;
+      filter.Q.value = 0.5;
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(master);
+      gain.connect(reverb);
+      osc.start();
+      lfo.start();
+      nodes.push(osc, gain, lfo, lfoGain, filter);
+
+      // Fade in
+      gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 4);
+      return gain;
+    };
+
+    // D minor tonal center — tense, political, minor key
+    // Chord progression: Dm - Bb - Gm - A (cycle ~32s)
+    const CHORDS: [number, number, number][] = [
+      [146.83, 220.00, 293.66],  // Dm  (D3, A3, D4)
+      [116.54, 174.61, 233.08],  // Bb  (Bb2, F3, Bb3)
+      [98.00,  146.83, 196.00],  // Gm  (G2, D3, G3)
+      [110.00, 164.81, 220.00],  // A   (A2, E3, A3)
+    ];
+    const CHORD_DURATION = 8; // seconds each
+
+    // Low bass drone — root note oscillating slowly
+    const bass = makePad(36.71, 0.09, 0.04); // D1
+    nodes.push(bass);
+
+    // Pad layers for the chord tones
+    const padGains: GainNode[] = [];
+    for (const freq of CHORDS[0]) {
+      padGains.push(makePad(freq, 0.022, 0.07 + Math.random() * 0.04));
+    }
+
+    let chordIdx = 0;
+    const cycleChord = () => {
+      chordIdx = (chordIdx + 1) % CHORDS.length;
+      const chord = CHORDS[chordIdx];
+      chord.forEach((freq, i) => {
+        if (padGains[i]) {
+          padGains[i].gain.cancelScheduledValues(ctx.currentTime);
+          padGains[i].gain.setValueAtTime(padGains[i].gain.value, ctx.currentTime);
+          padGains[i].gain.linearRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+          // Find the oscillator connected to this gain and retune it
+        }
+      });
+      // Retune via new pads (simpler than retuning existing)
+      const t = setTimeout(cycleChord, CHORD_DURATION * 1000);
+      timers.push(t);
+    };
+    const chordTimer = setTimeout(cycleChord, CHORD_DURATION * 1000);
+    timers.push(chordTimer);
+
+    // Melodic accent notes — sparse, haunting
+    // D minor pentatonic: D, F, G, A, C  (×2 octaves)
+    const MELODY_NOTES = [293.66, 349.23, 392.00, 440.00, 523.25, 587.33, 698.46, 784.00];
+    const scheduleMelody = () => {
+      const now = ctx.currentTime;
+      // 3-5 note phrase, spaced 1.2-2.4s apart
+      const phraseLen = 3 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < phraseLen; i++) {
+        const t = now + 0.5 + i * (1.2 + Math.random() * 1.2);
+        const freq = MELODY_NOTES[Math.floor(Math.random() * MELODY_NOTES.length)];
+        playNote(freq, t, 1.8 + Math.random(), 0.04 + Math.random() * 0.03);
+      }
+      // Next phrase: 8-18 seconds later
+      const next = 8000 + Math.random() * 10000;
+      const t = setTimeout(scheduleMelody, next);
+      timers.push(t);
+    };
+    const melodyDelay = setTimeout(scheduleMelody, 4000);
+    timers.push(melodyDelay);
+
+    // Subtle low pulse (heartbeat feel) — every ~2.4s
+    const schedulePulse = () => {
+      const now = ctx.currentTime;
+      playNote(58.27, now, 1.2, 0.07, 'sine'); // Bb1
+      const t = setTimeout(schedulePulse, 2400 + Math.random() * 400);
+      timers.push(t);
+    };
+    const pulseDelay = setTimeout(schedulePulse, 2000);
+    timers.push(pulseDelay);
+
+    musicRef.current = {
+      ctx,
+      master,
+      stop: () => {
+        timers.forEach(clearTimeout);
+        master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
+        master.gain.linearRampToValueAtTime(0, ctx.currentTime + 2);
+        setTimeout(() => { try { ctx.close(); } catch (_) {} }, 2500);
+      },
+    };
+
+    return () => {
+      musicRef.current?.stop();
+      musicRef.current = null;
+    };
+  }, [isMusicOn]);
+
+  useEffect(() => {
+    if (musicRef.current) {
+      musicRef.current.master.gain.setValueAtTime(musicVolume / 100, musicRef.current.ctx.currentTime);
+    }
+  }, [musicVolume]);
 
   useEffect(() => {
     if (token) {
@@ -331,6 +639,7 @@ export default function App() {
       const remoteStream = event.streams[0];
       const audio = new Audio();
       audio.srcObject = remoteStream;
+      audio.volume = soundVolume / 100;
       audio.play().catch(e => console.error("Remote audio play error", e));
       
       setupSpeakingDetection(remoteStream, peerId);
@@ -428,7 +737,7 @@ export default function App() {
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [gameState?.messages, gameState?.declarations]);
+  }, [gameState?.messages, gameState?.declarations, isChatOpen]);
 
   const prevDeclarationsLength = useRef(0);
   useEffect(() => {
@@ -594,6 +903,28 @@ export default function App() {
     if (chatText.trim()) {
       socket.emit('sendMessage', chatText.trim());
       setChatText('');
+      setShowEmojiPicker(false);
+    }
+  };
+
+  const onEmojiClick = (emojiData: any) => {
+    const emoji = emojiData.emoji;
+    const input = chatInputRef.current;
+    if (input) {
+      const start = input.selectionStart || 0;
+      const end = input.selectionEnd || 0;
+      const text = chatText;
+      const before = text.substring(0, start);
+      const after = text.substring(end);
+      const newText = before + emoji + after;
+      setChatText(newText);
+      
+      // Reset cursor position after state update
+      setTimeout(() => {
+        input.focus();
+        input.setSelectionRange(start + emoji.length, start + emoji.length);
+        handleChatScroll();
+      }, 0);
     }
   };
 
@@ -617,6 +948,7 @@ export default function App() {
               token={token || ''}
               onClose={() => setIsProfileOpen(false)} 
               onUpdateUser={setUser}
+              settings={{ isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen }}
             />
           )}
         </AnimatePresence>
@@ -664,6 +996,7 @@ export default function App() {
               token={token}
               onClose={() => setIsProfileOpen(false)} 
               onUpdateUser={setUser}
+              settings={{ isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen }}
             />
           )}
         </AnimatePresence>
@@ -729,21 +1062,35 @@ export default function App() {
               <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 sm:w-2 sm:h-2 bg-red-500 rounded-full border border-[#1a1a1a]" />
             )}
           </button>
-          <button 
-            onClick={() => setIsDossierOpen(true)}
-            className={cn(
-              "p-2 sm:p-2.5 rounded-xl border transition-all",
-              privateInfo ? (privateInfo.role === 'Liberal' ? "border-blue-900/50 bg-blue-900/20" : "border-red-900/50 bg-red-900/20") : "border-[#333] bg-[#222]"
-            )}
-          >
-            {privateInfo?.role === 'Liberal' ? (
-              <Bird className="w-3.5 h-3.5 sm:w-4 h-4 text-blue-400" />
-            ) : privateInfo?.role === 'Hitler' ? (
-              <HitlerIcon className="w-3.5 h-3.5 sm:w-4 h-4 text-red-500" />
-            ) : (
-              <Skull className={cn("w-3.5 h-3.5 sm:w-4 h-4", privateInfo ? "text-red-500" : "text-[#666]")} />
-            )}
-          </button>
+          {gameState.roundHistory && gameState.roundHistory.length > 0 && (
+            <button
+              onClick={() => setIsHistoryOpen(true)}
+              className="p-2 sm:p-2.5 rounded-xl border border-[#333] bg-[#222] text-[#666] hover:text-white transition-all relative"
+              title="Round History"
+            >
+              <BookOpen className="w-3.5 h-3.5 sm:w-4 h-4" />
+              <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-yellow-500 rounded-full border border-[#1a1a1a] flex items-center justify-center">
+                <span className="text-[7px] font-bold text-black leading-none">{gameState.roundHistory.length}</span>
+              </span>
+            </button>
+          )}
+          {gameState.phase !== 'Lobby' && (
+            <button 
+              onClick={() => setIsDossierOpen(true)}
+              className={cn(
+                "p-2 sm:p-2.5 rounded-xl border transition-all",
+                privateInfo ? (privateInfo.role === 'Liberal' ? "border-blue-900/50 bg-blue-900/20" : "border-red-900/50 bg-red-900/20") : "border-[#333] bg-[#222]"
+              )}
+            >
+              {privateInfo?.role === 'Liberal' ? (
+                <Bird className="w-3.5 h-3.5 sm:w-4 h-4 text-blue-400" />
+              ) : privateInfo?.role === 'Hitler' ? (
+                <HitlerIcon className="w-3.5 h-3.5 sm:w-4 h-4 text-red-500" />
+              ) : (
+                <Skull className={cn("w-3.5 h-3.5 sm:w-4 h-4", privateInfo ? "text-red-500" : "text-[#666]")} />
+              )}
+            </button>
+          )}
           <button 
             onClick={() => setIsProfileOpen(true)}
             className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#222] border border-[#333] flex items-center justify-center hover:border-red-900/50 transition-colors overflow-hidden relative shrink-0"
@@ -832,20 +1179,28 @@ export default function App() {
                   <div 
                     key={i}
                     className={cn(
-                      "flex-1 h-8 rounded-sm border transition-all duration-500 relative group cursor-help",
+                      "flex-1 h-8 rounded-sm border transition-all duration-500 relative group",
+                      power ? "cursor-pointer" : "",
                       i < gameState.fascistPolicies 
                         ? "bg-red-900/40 border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.2)]" 
                         : (i >= 3 ? "bg-red-900/10 border-red-900/30" : "bg-[#141414] border-[#222]")
                     )}
+                    onClick={(e) => {
+                      if (power) {
+                        e.currentTarget.classList.toggle('tooltip-open');
+                      }
+                    }}
                   >
                     {power && (
                       <div className="absolute inset-0 flex items-center justify-center opacity-30 group-hover:opacity-100 transition-opacity">
                         <Icon className="w-3 h-3 text-red-500" />
                       </div>
                     )}
-                    {/* Tooltip */}
+                    {/* Tooltip — visible on hover (desktop) or tap (mobile) */}
                     {power && (
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-32 p-2 bg-[#1a1a1a] border border-[#333] rounded-lg opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 shadow-2xl">
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-32 p-2 bg-[#1a1a1a] border border-[#333] rounded-lg
+                        opacity-0 group-hover:opacity-100 group-[.tooltip-open]:opacity-100
+                        pointer-events-none transition-opacity z-50 shadow-2xl">
                         <div className="text-[8px] font-mono text-red-500 uppercase mb-1">{power}</div>
                         <div className="text-[7px] text-[#888] leading-tight">{description}</div>
                       </div>
@@ -1364,7 +1719,13 @@ export default function App() {
             <div className="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
               {gameState.messages.map((item, i) => {
                 const senderPlayer = gameState.players.find(p => p.name === item.sender);
-                
+
+                // Declarations live in Round History only — skip them in chat
+                if (item.type === 'declaration') return null;
+
+                // Failed elections live in Round History only — skip them in chat
+                if (item.type === 'failed_election') return null;
+
                 if (item.type === 'round_separator') {
                   return (
                     <div key={i} className="w-full py-8 flex items-center justify-center">
@@ -1381,7 +1742,7 @@ export default function App() {
                 }
 
                 return (
-                  <div key={i} className={cn("flex gap-2", item.sender === me?.name ? "flex-row-reverse" : "flex-row")}>
+                  <div key={i} className={cn("flex w-full gap-2", item.sender === me?.name ? "flex-row-reverse" : "flex-row")}>
                     <div className="w-8 h-8 rounded-full bg-[#222] border border-[#333] shrink-0 overflow-hidden">
                       {senderPlayer?.avatarUrl ? (
                         <img src={senderPlayer.avatarUrl} alt={item.sender} className="w-full h-full object-cover" />
@@ -1389,103 +1750,92 @@ export default function App() {
                         <UserIcon className="w-4 h-4 text-[#444] m-2" />
                       )}
                     </div>
-                    <div className={cn("flex flex-col", item.sender === me?.name ? "items-end" : "items-start")}>
-                      <div className="text-[9px] text-[#444] font-mono mb-1">{item.sender}</div>
-                      {item.type !== 'declaration' && item.type !== 'failed_election' ? (
-                        <div className={cn(
-                          "px-3 py-2 rounded-2xl text-xs max-w-[85%]",
-                          item.sender === me?.name ? "bg-red-900/20 text-red-100 rounded-tr-none" : "bg-[#222] text-[#aaa] rounded-tl-none"
-                        )}>
-                          {item.text}
-                        </div>
-                      ) : item.type === 'declaration' ? (
-                        <div className="bg-[#1a1a1a] border border-[#333] rounded-xl p-3 flex flex-col gap-1 max-w-[90%] shadow-lg">
-                          <div className="flex items-center justify-between gap-4">
-                            <span className="text-[8px] font-mono text-[#666] uppercase tracking-widest">Policy Declaration</span>
-                            <span className={cn(
-                              "text-[7px] font-mono px-1 py-0.5 rounded border leading-none",
-                              item.declaration?.type === 'President' ? "bg-yellow-900/20 border-yellow-500/30 text-yellow-500" : "bg-blue-900/20 border-blue-500/30 text-blue-500"
-                            )}>{item.declaration?.type}</span>
-                          </div>
-                          <div className="text-[11px] text-[#888] leading-tight">
-                            {item.declaration?.type === 'President' ? 'Drew' : 'Passed'}: {' '}
-                            <span className="font-bold text-blue-400"><b>{item.declaration?.libs}</b> Liberal</span> and {' '}
-                            <span className="font-bold text-red-500"><b>{item.declaration?.fas}</b> Fascist</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="bg-red-900/10 border border-red-500/30 rounded-xl p-3 flex flex-col gap-1 max-w-[90%] shadow-lg">
-                          <div className="flex items-center justify-between gap-4">
-                            <span className="text-[8px] font-mono text-red-500 uppercase tracking-widest">Government Failed</span>
-                            <AlertTriangle className="w-3 h-3 text-red-500" />
-                          </div>
-                          <div className="text-[11px] text-red-200/70 leading-tight italic">
-                            The Assembly could not reach a majority. The Election Tracker has advanced.
-                          </div>
-                        </div>
-                      )}
+                    <div className={cn("flex flex-col min-w-0", item.sender === me?.name ? "items-end" : "items-start")}>
+                      <div className="text-[9px] text-[#444] font-mono mb-1 whitespace-nowrap">{item.sender}</div>
+                      <div className={cn(
+                        "px-3 py-2 rounded-2xl text-xs max-w-[85%] break-words whitespace-pre-wrap leading-relaxed",
+                        item.sender === me?.name ? "bg-red-900/20 text-red-100 rounded-tr-none" : "bg-[#222] text-[#aaa] rounded-tl-none"
+                      )}>
+                        <EmojiRenderer text={item.text} />
+                      </div>
                     </div>
                   </div>
                 );
               })}
               <div ref={chatEndRef} />
             </div>
-            <form onSubmit={handleSendMessage} className="p-4 border-t border-[#222] bg-[#141414]">
-              <div className="relative">
-                <input
-                  type="text"
-                  value={chatText}
-                  onChange={(e) => setChatText(e.target.value)}
-                  placeholder={(!me?.isAlive && gameState.phase !== 'GameOver') ? "Dead players cannot speak..." : "Type a message..."}
-                  disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
-                  className={cn(
-                    "w-full bg-[#1a1a1a] border border-[#333] rounded-full pl-4 pr-10 py-2 text-xs focus:outline-none focus:border-red-900/50",
-                    (!me?.isAlive && gameState.phase !== 'GameOver') && "opacity-50 cursor-not-allowed"
-                  )}
-                />
-                <button 
-                  type="submit" 
-                  disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
-                  className="absolute right-1 top-1 p-1 text-red-500 hover:text-red-400 disabled:text-[#333]"
-                >
-                  <Send className="w-4 h-4" />
-                </button>
-              </div>
-            </form>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Investigation Result Modal */}
-      <AnimatePresence>
-        {investigationResult && (
-          <motion.div 
-            initial={{ opacity: 0, scale: 0.9 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.9 }}
-            className="fixed inset-0 z-[120] bg-black/90 backdrop-blur-md flex items-center justify-center p-6"
-          >
-            <div className="max-w-xs w-full bg-[#1a1a1a] border border-blue-900/50 rounded-3xl p-8 text-center space-y-6 shadow-[0_0_50px_rgba(30,58,138,0.3)]">
-              <div className="w-16 h-16 bg-blue-900/20 rounded-full flex items-center justify-center mx-auto border border-blue-900/50">
-                <Shield className="w-8 h-8 text-blue-400" />
-              </div>
-              <div className="space-y-2">
-                <h3 className="text-[10px] uppercase tracking-widest text-[#666] font-mono">Investigation Result</h3>
-                <div className="text-xl font-serif italic text-white">{investigationResult.targetName}</div>
-                <div className={cn(
-                  "text-2xl font-serif italic uppercase tracking-tighter",
-                  investigationResult.role === 'Liberal' ? "text-blue-400" : "text-red-500"
-                )}>
-                  {investigationResult.role}
+            <form onSubmit={handleSendMessage} className="p-4 border-t border-[#222] bg-[#141414] relative">
+              {showEmojiPicker && (
+                <div className="absolute bottom-full right-0 mb-2 z-[120]">
+                  <div className="fixed inset-0" onClick={() => setShowEmojiPicker(false)} />
+                  <div className="relative">
+                    <EmojiPicker 
+                      onEmojiClick={onEmojiClick}
+                      theme={Theme.DARK}
+                      emojiStyle={EmojiStyle.APPLE}
+                      width={280}
+                      height={350}
+                      lazyLoadEmojis={true}
+                      skinTonesDisabled
+                      searchDisabled
+                    />
+                  </div>
+                </div>
+              )}
+              <div className="relative flex items-center gap-2">
+                <div className="relative flex-1">
+                  {/* Ghost div for unified emoji rendering */}
+                  <div 
+                    ref={chatGhostRef}
+                    className={cn(
+                      "absolute inset-0 w-full h-full pl-4 pr-20 py-2 text-xs pointer-events-none overflow-hidden whitespace-nowrap flex items-center",
+                      (!me?.isAlive && gameState.phase !== 'GameOver') && "opacity-50"
+                    )}
+                  >
+                    {chatText === '' ? (
+                      <span className="text-[#444]">
+                        {(!me?.isAlive && gameState.phase !== 'GameOver') ? "Dead players cannot speak..." : "Type a message..."}
+                      </span>
+                    ) : (
+                      <div className="flex items-center h-full">
+                        <EmojiRenderer text={chatText} />
+                      </div>
+                    )}
+                  </div>
+                  <input
+                    ref={chatInputRef}
+                    type="text"
+                    value={chatText}
+                    onChange={(e) => {
+                      setChatText(e.target.value);
+                      setTimeout(handleChatScroll, 0);
+                    }}
+                    onScroll={handleChatScroll}
+                    placeholder={(!me?.isAlive && gameState.phase !== 'GameOver') ? "Dead players cannot speak..." : "Type a message..."}
+                    disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
+                    className={cn(
+                      "w-full bg-[#1a1a1a] border border-[#333] rounded-full pl-4 pr-20 py-2 text-xs focus:outline-none focus:border-red-900/50 text-transparent caret-white selection:bg-red-900/30",
+                      (!me?.isAlive && gameState.phase !== 'GameOver') && "opacity-50 cursor-not-allowed"
+                    )}
+                  />
+                  <button 
+                    type="button"
+                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
+                    className="absolute right-10 top-1/2 -translate-y-1/2 p-1 text-[#666] hover:text-white disabled:opacity-50"
+                  >
+                    <Smile className="w-4 h-4" />
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
+                    className="absolute right-1 top-1/2 -translate-y-1/2 p-1 text-red-500 hover:text-red-400 disabled:text-[#333]"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
-              <button 
-                onClick={() => setInvestigationResult(null)}
-                className="w-full py-3 bg-blue-900/40 text-blue-100 rounded-xl hover:bg-blue-900/60 transition-all text-sm font-serif italic border border-blue-900/50"
-              >
-                Understood
-              </button>
-            </div>
+            </form>
           </motion.div>
         )}
       </AnimatePresence>
@@ -1634,6 +1984,146 @@ export default function App() {
                 );
               })}
               <div ref={logEndRef} className="h-20" />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Round History Panel */}
+      <AnimatePresence>
+        {isHistoryOpen && (
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 200 }}
+            className="fixed inset-0 z-[150] bg-[#141414] flex flex-col"
+          >
+            <div className="h-14 px-4 flex items-center justify-between border-b border-[#222] shrink-0 bg-[#1a1a1a]">
+              <div className="flex items-center gap-3">
+                <BookOpen className="w-4 h-4 text-white" />
+                <h3 className="font-thematic text-lg uppercase tracking-wider text-white">Round History</h3>
+              </div>
+              <button onClick={() => setIsHistoryOpen(false)} className="p-2 text-[#666] hover:text-white transition-colors bg-[#222] rounded-xl">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar overscroll-contain">
+              {(!gameState.roundHistory || gameState.roundHistory.length === 0) ? (
+                <div className="flex items-center justify-center h-32 text-[#444] font-mono text-xs uppercase tracking-widest">
+                  No governments formed yet
+                </div>
+              ) : [...gameState.roundHistory].reverse().map((entry, i) => {
+                const isFailed = entry.failed;
+                return (
+                <div key={i} className={cn(
+                  "rounded-2xl border overflow-hidden",
+                  isFailed
+                    ? "border-[#333] bg-[#141414]"
+                    : entry.policy === 'Liberal' ? "border-blue-900/40 bg-blue-900/5" : "border-red-900/40 bg-red-900/5"
+                )}>
+                  {/* Header row */}
+                  <div className={cn(
+                    "px-4 py-2 flex items-center justify-between",
+                    isFailed ? "bg-[#1a1a1a]" : entry.policy === 'Liberal' ? "bg-blue-900/20" : "bg-red-900/20"
+                  )}>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[9px] font-mono uppercase tracking-widest text-[#444]">Round {entry.round}</span>
+                      {entry.chaos && (
+                        <span className="text-[7px] font-mono px-1.5 py-0.5 rounded bg-orange-900/30 border border-orange-500/30 text-orange-400 uppercase tracking-widest">Chaos</span>
+                      )}
+                      {isFailed && (
+                        <span className="text-[7px] font-mono px-1.5 py-0.5 rounded bg-[#222] border border-[#333] text-[#666] uppercase tracking-widest">
+                          {entry.failReason === 'veto' ? 'Vetoed' : 'Rejected'}
+                        </span>
+                      )}
+                    </div>
+                    {isFailed ? (
+                      <div className="flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest text-[#555]">
+                        <X className="w-3 h-3" />
+                        No policy
+                      </div>
+                    ) : (
+                      <div className={cn(
+                        "flex items-center gap-1.5 text-[9px] font-mono uppercase tracking-widest font-bold",
+                        entry.policy === 'Liberal' ? "text-blue-400" : "text-red-500"
+                      )}>
+                        {entry.policy === 'Liberal' ? <Bird className="w-3 h-3" /> : <Skull className="w-3 h-3" />}
+                        {entry.policy}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-3 space-y-3">
+                    {/* Government */}
+                    <div className="flex items-center gap-3 text-[11px]">
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-yellow-900/20 border border-yellow-500/20 text-yellow-500 font-mono text-[8px] uppercase">Pres</span>
+                        <span className="text-white/80">{entry.presidentName}</span>
+                      </div>
+                      <div className="text-[#333]">×</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 rounded bg-blue-900/20 border border-blue-500/20 text-blue-400 font-mono text-[8px] uppercase">Chan</span>
+                        <span className="text-white/80">{entry.chancellorName}</span>
+                      </div>
+                    </div>
+
+                    {/* Declarations — only for successful governments */}
+                    {!isFailed && (entry.presDeclaration || entry.chanDeclaration) && (
+                      <div className="flex gap-2">
+                        {entry.presDeclaration && (
+                          <div className="flex-1 p-2 rounded-lg bg-[#1a1a1a] border border-[#222] text-[9px] font-mono">
+                            <div className="text-yellow-500 uppercase tracking-widest mb-1">President drew</div>
+                            <span className="text-blue-400">{entry.presDeclaration.libs}L</span>
+                            <span className="text-[#444] mx-1">/</span>
+                            <span className="text-red-500">{entry.presDeclaration.fas}F</span>
+                          </div>
+                        )}
+                        {entry.chanDeclaration && (
+                          <div className="flex-1 p-2 rounded-lg bg-[#1a1a1a] border border-[#222] text-[9px] font-mono">
+                            <div className="text-blue-400 uppercase tracking-widest mb-1">Chancellor got</div>
+                            <span className="text-blue-400">{entry.chanDeclaration.libs}L</span>
+                            <span className="text-[#444] mx-1">/</span>
+                            <span className="text-red-500">{entry.chanDeclaration.fas}F</span>
+                            {entry.chanDeclaration && entry.presDeclaration &&
+                              (entry.chanDeclaration.fas > entry.presDeclaration.fas || entry.presDeclaration.fas - entry.chanDeclaration.fas > 1) && (
+                                <span className="ml-1.5 text-orange-400 font-bold" title="Inconsistent declarations">⚠</span>
+                              )
+                            }
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Votes */}
+                    {entry.votes.length > 0 && (
+                      <div>
+                        <div className="text-[8px] font-mono text-[#444] uppercase tracking-widest mb-1.5">Votes</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {entry.votes.map((v, vi) => (
+                            <div key={vi} className={cn(
+                              "flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono border",
+                              v.vote === 'Ja'
+                                ? "bg-emerald-900/20 border-emerald-500/30 text-emerald-400"
+                                : "bg-red-900/20 border-red-500/30 text-red-400"
+                            )}>
+                              <span>{v.playerName.replace(' (AI)', '')}</span>
+                              <span className="font-bold">{v.vote}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {!isFailed && entry.executiveAction && (
+                      <div className="text-[8px] font-mono text-orange-400/70 uppercase tracking-widest">
+                        Executive: {entry.executiveAction}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                );
+              })}
             </div>
           </motion.div>
         )}
@@ -1866,6 +2356,7 @@ export default function App() {
             token={token!}
             onClose={() => setIsProfileOpen(false)} 
             onUpdateUser={setUser}
+            settings={{ isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen }}
           />
         )}
       </AnimatePresence>

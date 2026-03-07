@@ -10,6 +10,18 @@ interface ProfileProps {
   onClose: () => void;
   onUpdateUser: (user: User) => void;
   token: string;
+  settings: {
+    isMusicOn: boolean;
+    setIsMusicOn: React.Dispatch<React.SetStateAction<boolean>>;
+    isSoundOn: boolean;
+    setIsSoundOn: React.Dispatch<React.SetStateAction<boolean>>;
+    musicVolume: number;
+    setMusicVolume: React.Dispatch<React.SetStateAction<number>>;
+    soundVolume: number;
+    setSoundVolume: React.Dispatch<React.SetStateAction<number>>;
+    isFullscreen: boolean;
+    setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
+  };
 }
 
 const SHOP_ITEMS: CosmeticItem[] = [
@@ -41,11 +53,24 @@ const SHOP_ITEMS: CosmeticItem[] = [
   { id: 'vote-ancient', name: 'Ancient Ostracon', price: 2500, type: 'vote', description: 'Pottery shards used in ancient democracy.' },
 ];
 
-export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token }) => {
-  const [activeTab, setActiveTab] = useState<'stats' | 'shop'>('stats');
+export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token, settings }) => {
+  const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'settings'>('stats');
   const [shopCategory, setShopCategory] = useState<'frame' | 'policy' | 'vote'>('frame');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+  
+  // Settings props destructuring
+  const { isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen } = settings;
+
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+      setIsFullscreen(true);
+    } else {
+      document.exitFullscreen();
+      setIsFullscreen(false);
+    }
+  };
 
   const handleBuy = async (item: CosmeticItem) => {
     setIsLoading(true);
@@ -183,6 +208,16 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
             Cosmetic Shop
             {activeTab === 'shop' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
           </button>
+          <button 
+            onClick={() => setActiveTab('settings')}
+            className={cn(
+              "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
+              activeTab === 'settings' ? "text-white" : "text-[#444] hover:text-[#666]"
+            )}
+          >
+            Settings
+            {activeTab === 'settings' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
+          </button>
         </div>
 
         {/* Content */}
@@ -198,7 +233,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
               <StatCard label="Kills" value={user.stats.kills} icon={<Zap className="w-4 h-4 text-yellow-500" />} />
               <StatCard label="Deaths" value={user.stats.deaths} icon={<Heart className="w-4 h-4 text-red-500" />} />
             </div>
-          ) : (
+          ) : activeTab === 'shop' ? (
             <div className="space-y-8">
               {error && (
                 <div className="text-red-500 text-xs text-center font-mono bg-red-900/10 py-3 rounded-xl border border-red-900/20">
@@ -322,6 +357,35 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-6 max-w-md mx-auto">
+              <div className="flex items-center justify-between p-4 bg-[#141414] border border-[#222] rounded-2xl">
+                <span className="text-sm font-mono text-white">Music</span>
+                <button onClick={() => setIsMusicOn(!isMusicOn)} className={cn("w-12 h-6 rounded-full transition-all relative", isMusicOn ? "bg-red-900" : "bg-[#333]")}>
+                  <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all", isMusicOn ? "left-7" : "left-1")} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-[#141414] border border-[#222] rounded-2xl">
+                <span className="text-sm font-mono text-white">Sound Effects</span>
+                <button onClick={() => setIsSoundOn(!isSoundOn)} className={cn("w-12 h-6 rounded-full transition-all relative", isSoundOn ? "bg-red-900" : "bg-[#333]")}>
+                  <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all", isSoundOn ? "left-7" : "left-1")} />
+                </button>
+              </div>
+              <div className="p-4 bg-[#141414] border border-[#222] rounded-2xl space-y-2">
+                <span className="text-sm font-mono text-white">Music Volume</span>
+                <input type="range" min="0" max="100" value={musicVolume} onChange={(e) => setMusicVolume(parseInt(e.target.value))} className="w-full accent-red-900" />
+              </div>
+              <div className="p-4 bg-[#141414] border border-[#222] rounded-2xl space-y-2">
+                <span className="text-sm font-mono text-white">Sound Effects Volume</span>
+                <input type="range" min="0" max="100" value={soundVolume} onChange={(e) => setSoundVolume(parseInt(e.target.value))} className="w-full accent-red-900" />
+              </div>
+              <div className="flex items-center justify-between p-4 bg-[#141414] border border-[#222] rounded-2xl">
+                <span className="text-sm font-mono text-white">Fullscreen</span>
+                <button onClick={toggleFullscreen} className={cn("w-12 h-6 rounded-full transition-all relative", isFullscreen ? "bg-red-900" : "bg-[#333]")}>
+                  <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all", isFullscreen ? "left-7" : "left-1")} />
+                </button>
               </div>
             </div>
           )}

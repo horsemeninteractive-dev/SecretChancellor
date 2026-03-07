@@ -81,6 +81,10 @@ export interface Player {
   activeVotingStyle?: string;
   isDisconnected?: boolean;
   isReady?: boolean;
+  // Bayesian suspicion model: log-odds that each other player is Fascist/Hitler
+  suspicion?: { [playerId: string]: number };
+  // How many fascist policies this player has enacted as Chancellor (observable)
+  fascistEnactments?: number;
 }
 export const Player = {};
 
@@ -119,7 +123,7 @@ export interface GameState {
     round?: number;
   }[];
   investigationResult?: { targetName: string; role: Role };
-  lastEnactedPolicy?: { type: Policy; timestamp: number; playerId?: string };
+  lastEnactedPolicy?: { type: Policy; timestamp: number; playerId?: string; historyCaptured?: boolean };
   round: number;
   vetoUnlocked: boolean;
   vetoRequested: boolean;
@@ -140,6 +144,28 @@ export interface GameState {
   pauseReason?: string;
   pauseTimer?: number;
   disconnectedPlayerId?: string;
+  // Used by the Bayesian suspicion model: stores who voted how for the most
+  // recently-formed government, and who was in it, so suspicion can be updated
+  // once the enacted policy type is known (6s later during the animation).
+  lastGovernmentVotes?: { [playerId: string]: 'Ja' | 'Nein' };
+  lastGovernmentPresidentId?: string;
+  lastGovernmentChancellorId?: string;
+  // Used by coordinated fascist AI lying: president stores the chancellor's intended claim
+  pendingChancellorClaim?: { libs: number; fas: number };
+  // Structured per-round history for the history panel
+  roundHistory?: {
+    round: number;
+    presidentName: string;
+    chancellorName: string;
+    policy?: Policy;
+    failed?: boolean;
+    failReason?: 'vote' | 'veto';
+    chaos?: boolean;
+    votes: { playerId: string; playerName: string; vote: 'Ja' | 'Nein' }[];
+    presDeclaration?: { libs: number; fas: number };
+    chanDeclaration?: { libs: number; fas: number };
+    executiveAction?: string;
+  }[];
 }
 export const GameState = {};
 
