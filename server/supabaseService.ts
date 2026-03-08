@@ -17,6 +17,9 @@ function mapSupabaseToUser(data: any): any {
     activeFrame:       data.active_frame,
     activePolicyStyle: data.active_policy,
     activeVotingStyle: data.active_vote,
+    activeMusic:       data.active_music,
+    activeSoundPack:   data.active_sound,
+    activeBackground:  data.active_background,
     googleId:          data.google_id,
     discordId:         data.discord_id,
   };
@@ -32,6 +35,9 @@ function mapUserToSupabase(userData: any): any {
     active_frame:     userData.activeFrame,
     active_policy:    userData.activePolicyStyle,
     active_vote:      userData.activeVotingStyle,
+    active_music:     userData.activeMusic,
+    active_sound:     userData.activeSoundPack,
+    active_background:userData.activeBackground,
     google_id:        userData.googleId,
     discord_id:       userData.discordId,
     stats:            userData.stats,
@@ -140,7 +146,7 @@ export function makeNewUser(overrides: Partial<any> = {}): any {
       elo:          1000,
       points:       0,
     },
-    ownedCosmetics: [],
+    ownedCosmetics: ['music-ambient'],
     ...overrides,
   };
 }

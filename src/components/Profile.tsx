@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { X, Trophy, Coins, Shield, User as UserIcon, Check, ShoppingBag, ArrowLeft, Star, Heart, Zap, Flame, Scroll } from 'lucide-react';
 import { User, CosmeticItem, Policy } from '../types';
 import { cn } from '../lib/utils';
@@ -10,6 +10,7 @@ interface ProfileProps {
   onClose: () => void;
   onUpdateUser: (user: User) => void;
   token: string;
+  playSound: (soundKey: string) => void;
   settings: {
     isMusicOn: boolean;
     setIsMusicOn: React.Dispatch<React.SetStateAction<boolean>>;
@@ -51,11 +52,29 @@ const SHOP_ITEMS: CosmeticItem[] = [
   { id: 'vote-wax', name: 'Wax Seal', price: 1800, type: 'vote', description: 'Official documents sealed with red wax.' },
   { id: 'vote-digital', name: 'Digital Consensus', price: 1500, type: 'vote', description: 'Holographic voting interface.' },
   { id: 'vote-ancient', name: 'Ancient Ostracon', price: 2500, type: 'vote', description: 'Pottery shards used in ancient democracy.' },
+
+  // Music
+  { id: 'music-ambient', name: 'Shadows Over Parliament', price: 0, type: 'music', description: 'Deep, atmospheric orchestral tension.' },
+  { id: 'music-fog', name: 'Fog In The Alley', price: 1500, type: 'music', description: 'Mysterious and low-profile noir vibes.' },
+  { id: 'music-tense', name: 'Final Countdown', price: 2500, type: 'music', description: 'High-stakes rhythmic tension for the endgame.' },
+  { id: 'music-victory', name: 'Triumph of the New Age', price: 4000, type: 'music', description: 'A grand orchestral anthem for the victors.' },
+
+  // Sound Packs
+  { id: 'sound-retro', name: 'Retro 8-bit', price: 1500, type: 'sound', description: 'Classic arcade sound effects.' },
+  { id: 'sound-industrial', name: 'Industrial Clang', price: 2500, type: 'sound', description: 'Heavy, metallic sound effects.' },
+  
+  // Backgrounds
+  { id: 'bg-leather', name: 'Dark Leather', price: 1000, type: 'background', description: 'A sophisticated dark leather texture.', imageUrl: 'https://www.transparenttextures.com/patterns/dark-leather.png' },
+  { id: 'bg-brushed', name: 'Brushed Metal', price: 1500, type: 'background', description: 'Cold, industrial brushed aluminum.', imageUrl: 'https://www.transparenttextures.com/patterns/brushed-alum.png' },
+  { id: 'bg-diamonds', name: 'Diamond Plate', price: 1200, type: 'background', description: 'Reinforced steel diamond pattern.', imageUrl: 'https://www.transparenttextures.com/patterns/diagmonds-light.png' },
+  { id: 'bg-wood', name: 'Dark Mahogany', price: 2000, type: 'background', description: 'Rich, polished dark wood grain.', imageUrl: 'https://www.transparenttextures.com/patterns/dark-wood.png' },
+  { id: 'bg-paper', name: 'Aged Parchment', price: 1800, type: 'background', description: 'Weathered, historical paper texture.', imageUrl: 'https://www.transparenttextures.com/patterns/old-mathematics.png' },
+  { id: 'bg-concrete', name: 'Urban Concrete', price: 1400, type: 'background', description: 'Rough, brutalist concrete wall.', imageUrl: 'https://www.transparenttextures.com/patterns/concrete-wall.png' },
 ];
 
-export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token, settings }) => {
+export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token, playSound, settings }) => {
   const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'settings'>('stats');
-  const [shopCategory, setShopCategory] = useState<'frame' | 'policy' | 'vote'>('frame');
+  const [shopCategory, setShopCategory] = useState<'frame' | 'policy' | 'vote' | 'music' | 'sound' | 'background'>('frame');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   
@@ -94,7 +113,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
     }
   };
 
-  const handleEquip = async (type: 'frame' | 'policy' | 'vote', itemId: string | undefined) => {
+  const handleEquip = async (type: 'frame' | 'policy' | 'vote' | 'music' | 'sound' | 'background', itemId: string | undefined) => {
     setIsLoading(true);
     setError('');
     try {
@@ -102,6 +121,9 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
       if (type === 'frame') body.frameId = itemId;
       if (type === 'policy') body.policyStyle = itemId;
       if (type === 'vote') body.votingStyle = itemId;
+      if (type === 'music') body.music = itemId === 'music-ambient' ? null : itemId;
+      if (type === 'sound') body.soundPack = itemId;
+      if (type === 'background') body.backgroundId = itemId;
 
       const response = await fetch('/api/profile/frame', {
         method: 'POST',
@@ -179,7 +201,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
           </div>
 
           <button 
-            onClick={onClose}
+            onClick={() => {
+              playSound('click');
+              onClose();
+            }}
             className="absolute top-6 right-6 p-2 text-[#444] hover:text-white transition-colors"
           >
             <X className="w-6 h-6" />
@@ -189,7 +214,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
         {/* Tabs */}
         <div className="flex border-b border-[#222]">
           <button 
-            onClick={() => setActiveTab('stats')}
+            onClick={() => {
+              playSound('click');
+              setActiveTab('stats');
+            }}
             className={cn(
               "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
               activeTab === 'stats' ? "text-white" : "text-[#444] hover:text-[#666]"
@@ -199,7 +227,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
             {activeTab === 'stats' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
           </button>
           <button 
-            onClick={() => setActiveTab('shop')}
+            onClick={() => {
+              playSound('click');
+              setActiveTab('shop');
+            }}
             className={cn(
               "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
               activeTab === 'shop' ? "text-white" : "text-[#444] hover:text-[#666]"
@@ -209,7 +240,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
             {activeTab === 'shop' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
           </button>
           <button 
-            onClick={() => setActiveTab('settings')}
+            onClick={() => {
+              playSound('click');
+              setActiveTab('settings');
+            }}
             className={cn(
               "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
               activeTab === 'settings' ? "text-white" : "text-[#444] hover:text-[#666]"
@@ -242,67 +276,124 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
               )}
 
               {/* Shop Categories */}
-              <div className="flex gap-2 p-1 bg-[#141414] rounded-2xl border border-[#222] w-fit mx-auto mb-8">
-                {(['frame', 'policy', 'vote'] as const).map((cat) => (
-                  <button
-                    key={cat}
-                    onClick={() => setShopCategory(cat)}
-                    className={cn(
-                      "px-6 py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest transition-all",
-                      shopCategory === cat ? "bg-red-900 text-white" : "text-[#444] hover:text-[#666]"
-                    )}
-                  >
-                    {cat}s
-                  </button>
-                ))}
+              <div className="flex flex-col gap-2 w-full max-w-lg mx-auto mb-8">
+                {/* Row 1 */}
+                <div className="flex gap-1 sm:gap-2 p-1 bg-[#141414] rounded-2xl border border-[#222]">
+                  {[
+                    { id: 'frame', label: 'Frames' },
+                    { id: 'policy', label: 'Policies' },
+                    { id: 'vote', label: 'Votes' }
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => {
+                        playSound('click');
+                        setShopCategory(cat.id as any);
+                      }}
+                      className={cn(
+                        "flex-1 px-3 sm:px-6 py-2 rounded-xl text-[9px] sm:text-[10px] font-mono uppercase tracking-widest transition-all whitespace-nowrap",
+                        shopCategory === cat.id ? "bg-red-900 text-white" : "text-[#444] hover:text-[#666]"
+                      )}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
+                {/* Row 2 */}
+                <div className="flex gap-1 sm:gap-2 p-1 bg-[#141414] rounded-2xl border border-[#222]">
+                  {[
+                    { id: 'music', label: 'Music' },
+                    { id: 'sound', label: 'Sounds' },
+                    { id: 'background', label: 'Backgrounds' }
+                  ].map((cat) => (
+                    <button
+                      key={cat.id}
+                      onClick={() => {
+                        playSound('click');
+                        setShopCategory(cat.id as any);
+                      }}
+                      className={cn(
+                        "flex-1 px-3 sm:px-6 py-2 rounded-xl text-[9px] sm:text-[10px] font-mono uppercase tracking-widest transition-all whitespace-nowrap",
+                        shopCategory === cat.id ? "bg-red-900 text-white" : "text-[#444] hover:text-[#666]"
+                      )}
+                    >
+                      {cat.label}
+                    </button>
+                  ))}
+                </div>
               </div>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* Default Item */}
-                <div className="bg-[#141414] border border-[#222] rounded-3xl p-6 flex flex-col items-center text-center group">
-                  <div className="w-20 h-20 rounded-2xl bg-[#222] border border-[#333] mb-4 flex items-center justify-center overflow-hidden">
-                    {shopCategory === 'frame' ? (
-                      user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-[#444]" />
-                    ) : shopCategory === 'policy' ? (
-                      <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(undefined, 'Liberal'))}>
-                        <Scroll className="w-8 h-8" />
-                        <span className="text-[8px] font-mono uppercase">Liberal</span>
-                      </div>
-                    ) : (
-                      <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(undefined, 'Ja'))}>
-                        <span className="text-lg font-thematic uppercase">Ja!</span>
-                        <span className="text-[8px] font-mono uppercase">YES</span>
-                      </div>
-                    )}
+                {/* Default Item - Hidden for music as Shadows Over Parliament is the default */}
+                {shopCategory !== 'music' && (
+                  <div className="bg-[#141414] border border-[#222] rounded-3xl p-6 flex flex-col items-center text-center group">
+                    <div className="w-20 h-20 rounded-2xl bg-[#222] border border-[#333] mb-4 flex items-center justify-center overflow-hidden">
+                      {shopCategory === 'frame' ? (
+                        user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-[#444]" />
+                      ) : shopCategory === 'policy' ? (
+                        <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(undefined, 'Liberal'))}>
+                          <Scroll className="w-8 h-8" />
+                          <span className="text-[8px] font-mono uppercase">Liberal</span>
+                        </div>
+                      ) : shopCategory === 'vote' ? (
+                        <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(undefined, 'Ja'))}>
+                          <span className="text-lg font-thematic uppercase">Ja!</span>
+                          <span className="text-[8px] font-mono uppercase">YES</span>
+                        </div>
+                      ) : shopCategory === 'background' ? (
+                        <div className="w-full h-full bg-[#141414] flex items-center justify-center">
+                          <div className="w-full h-full opacity-50" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/carbon-fibre.png")' }} />
+                        </div>
+                      ) : (
+                        <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                          <span className="text-[8px] font-mono uppercase">{shopCategory}</span>
+                        </div>
+                      )}
+                    </div>
+                    <h4 className="font-serif italic text-lg mb-1 text-white">Default {shopCategory}</h4>
+                    <p className="text-[10px] text-[#666] font-mono uppercase mb-4">Standard Issue</p>
+                    <button 
+                      onClick={() => {
+                        playSound('click');
+                        handleEquip(shopCategory, null as any);
+                      }}
+                      disabled={
+                        (shopCategory === 'frame' && !user.activeFrame) ||
+                        (shopCategory === 'policy' && !user.activePolicyStyle) ||
+                        (shopCategory === 'vote' && !user.activeVotingStyle) ||
+                        (shopCategory === 'music' && !user.activeMusic) ||
+                        (shopCategory === 'sound' && !user.activeSoundPack) ||
+                        (shopCategory === 'background' && !user.activeBackground)
+                      }
+                      className={cn(
+                        "w-full py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest transition-all",
+                        ((shopCategory === 'frame' && !user.activeFrame) ||
+                         (shopCategory === 'policy' && !user.activePolicyStyle) ||
+                         (shopCategory === 'vote' && !user.activeVotingStyle) ||
+                         (shopCategory === 'music' && !user.activeMusic) ||
+                         (shopCategory === 'sound' && !user.activeSoundPack) ||
+                         (shopCategory === 'background' && !user.activeBackground)) ? "bg-emerald-900/20 text-emerald-500 border border-emerald-900/50" : "bg-[#222] text-white hover:bg-[#333]"
+                      )}
+                    >
+                      {((shopCategory === 'frame' && !user.activeFrame) ||
+                        (shopCategory === 'policy' && !user.activePolicyStyle) ||
+                        (shopCategory === 'vote' && !user.activeVotingStyle) ||
+                        (shopCategory === 'music' && !user.activeMusic) ||
+                        (shopCategory === 'sound' && !user.activeSoundPack) ||
+                        (shopCategory === 'background' && !user.activeBackground)) ? 'Equipped' : 'Equip'}
+                    </button>
                   </div>
-                  <h4 className="font-serif italic text-lg mb-1 text-white">Default {shopCategory}</h4>
-                  <p className="text-[10px] text-[#666] font-mono uppercase mb-4">Standard Issue</p>
-                  <button 
-                    onClick={() => handleEquip(shopCategory, null as any)}
-                    disabled={
-                      (shopCategory === 'frame' && !user.activeFrame) ||
-                      (shopCategory === 'policy' && !user.activePolicyStyle) ||
-                      (shopCategory === 'vote' && !user.activeVotingStyle)
-                    }
-                    className={cn(
-                      "w-full py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest transition-all",
-                      ((shopCategory === 'frame' && !user.activeFrame) ||
-                       (shopCategory === 'policy' && !user.activePolicyStyle) ||
-                       (shopCategory === 'vote' && !user.activeVotingStyle)) ? "bg-emerald-900/20 text-emerald-500 border border-emerald-900/50" : "bg-[#222] text-white hover:bg-[#333]"
-                    )}
-                  >
-                    {((shopCategory === 'frame' && !user.activeFrame) ||
-                      (shopCategory === 'policy' && !user.activePolicyStyle) ||
-                      (shopCategory === 'vote' && !user.activeVotingStyle)) ? 'Equipped' : 'Equip'}
-                  </button>
-                </div>
+                )}
 
                 {filteredItems.map((item) => {
-                  const isOwned = user.ownedCosmetics.includes(item.id);
+                  const isOwned = user.ownedCosmetics.includes(item.id) || item.id === 'music-ambient';
                   const isEquipped = 
                     (item.type === 'frame' && user.activeFrame === item.id) ||
                     (item.type === 'policy' && user.activePolicyStyle === item.id) ||
-                    (item.type === 'vote' && user.activeVotingStyle === item.id);
+                    (item.type === 'vote' && user.activeVotingStyle === item.id) ||
+                    (item.type === 'music' && (user.activeMusic === item.id || (!user.activeMusic && item.id === 'music-ambient'))) ||
+                    (item.type === 'sound' && user.activeSoundPack === item.id) ||
+                    (item.type === 'background' && user.activeBackground === item.id);
                   
                   return (
                     <div key={item.id} className="bg-[#141414] border border-[#222] rounded-3xl p-6 flex flex-col items-center text-center group">
@@ -315,10 +406,18 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                               <Scroll className="w-8 h-8" />
                               <span className="text-[8px] font-mono uppercase">Liberal</span>
                             </div>
-                          ) : (
+                          ) : item.type === 'vote' ? (
                             <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(item.id, 'Ja'))}>
                               <span className="text-lg font-thematic uppercase">Ja!</span>
                               <span className="text-[8px] font-mono uppercase">YES</span>
+                            </div>
+                          ) : item.type === 'background' ? (
+                            <div className="w-full h-full bg-[#141414] flex items-center justify-center">
+                              <div className="w-full h-full opacity-50" style={{ backgroundImage: `url("${item.imageUrl}")` }} />
+                            </div>
+                          ) : (
+                            <div className="w-full h-full flex flex-col items-center justify-center gap-1">
+                              <span className="text-[8px] font-mono uppercase">{item.type}</span>
                             </div>
                           )}
                         </div>
@@ -335,7 +434,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                       
                       {isOwned ? (
                         <button 
-                          onClick={() => handleEquip(item.type as any, item.id)}
+                          onClick={() => {
+                            playSound('click');
+                            handleEquip(item.type as any, item.id);
+                          }}
                           disabled={isEquipped}
                           className={cn(
                             "w-full py-2 rounded-xl text-[10px] font-mono uppercase tracking-widest transition-all",
@@ -346,7 +448,10 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                         </button>
                       ) : (
                         <button 
-                          onClick={() => handleBuy(item)}
+                          onClick={() => {
+                            playSound('click');
+                            handleBuy(item);
+                          }}
                           disabled={user.stats.points < item.price || isLoading}
                           className="w-full py-2 bg-red-900 text-white rounded-xl text-[10px] font-mono uppercase tracking-widest hover:bg-red-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                         >

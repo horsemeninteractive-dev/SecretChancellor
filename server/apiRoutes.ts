@@ -269,7 +269,7 @@ export function registerRoutes(
 
   app.post("/api/profile/frame", async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(" ")[1];
-    const { frameId, policyStyle, votingStyle } = req.body;
+    const { frameId, policyStyle, votingStyle, music, soundPack, backgroundId } = req.body;
     if (!token) return res.status(401).json({ error: "No token" });
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
@@ -287,6 +287,18 @@ export function registerRoutes(
       if (votingStyle !== undefined) {
         if (votingStyle && !user.ownedCosmetics.includes(votingStyle)) return res.status(400).json({ error: "Not owned" });
         user.activeVotingStyle = votingStyle;
+      }
+      if (music !== undefined) {
+        if (music && !user.ownedCosmetics.includes(music)) return res.status(400).json({ error: "Not owned" });
+        user.activeMusic = music;
+      }
+      if (soundPack !== undefined) {
+        if (soundPack && !user.ownedCosmetics.includes(soundPack)) return res.status(400).json({ error: "Not owned" });
+        user.activeSoundPack = soundPack;
+      }
+      if (backgroundId !== undefined) {
+        if (backgroundId && !user.ownedCosmetics.includes(backgroundId)) return res.status(400).json({ error: "Not owned" });
+        user.activeBackground = backgroundId;
       }
 
       await saveUser(user);

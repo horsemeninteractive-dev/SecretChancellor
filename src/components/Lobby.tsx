@@ -9,9 +9,12 @@ interface LobbyProps {
   onJoinRoom: (roomId: string, maxPlayers?: number, actionTimer?: number, mode?: 'Casual' | 'Ranked', isSpectator?: boolean) => void;
   onLogout: () => void;
   onOpenProfile: () => void;
+  playSound: (soundKey: string) => void;
 }
 
-export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpenProfile }) => {
+import { getBackgroundTexture } from '../lib/cosmetics';
+
+export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpenProfile, playSound }) => {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [rejoinInfo, setRejoinInfo] = useState<{ canRejoin: boolean; roomId?: string; roomName?: string; mode?: string } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
@@ -52,7 +55,12 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
   };
 
   return (
-    <div className="min-h-screen bg-texture text-white font-sans flex flex-col">
+    <div 
+      className="min-h-screen bg-texture text-white font-sans flex flex-col"
+      style={{ 
+        backgroundImage: `radial-gradient(circle at 50% 50%, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 1) 100%), url("${getBackgroundTexture(user.activeBackground)}")` 
+      }}
+    >
       {/* Header */}
       <header className="h-20 border-b border-[#222] bg-[#1a1a1a]/50 backdrop-blur-xl px-6 flex items-center justify-between sticky top-0 z-50">
         <div className="flex items-center gap-4">
@@ -60,7 +68,10 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
             <img src="https://storage.googleapis.com/secretchancellor/SC.png" alt="Secret Chancellor Logo" className="w-full h-full object-contain p-1" referrerPolicy="no-referrer" />
           </div>
           <div className="min-w-0">
-            <h1 className="text-base sm:text-2xl font-thematic text-white tracking-wide leading-none truncate">Secret Chancellor</h1>
+            <div className="flex items-baseline gap-2">
+              <h1 className="text-base sm:text-2xl font-thematic text-white tracking-wide leading-none truncate">Secret Chancellor</h1>
+              <span className="text-[8px] font-mono text-red-500/60 border border-red-900/40 rounded px-1 py-0.5 leading-none shrink-0">v0.8.1</span>
+            </div>
             <p className="text-[8px] sm:text-[10px] uppercase tracking-widest text-[#666] font-mono mt-0.5">Assembly Lobby</p>
           </div>
         </div>
@@ -79,7 +90,10 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
           </div>
 
           <button 
-            onClick={onOpenProfile}
+            onClick={() => {
+              playSound('click');
+              onOpenProfile();
+            }}
             className="flex items-center gap-3 group"
           >
             <div className="text-right hidden sm:block">
@@ -99,7 +113,10 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
           </button>
 
           <button 
-            onClick={onLogout}
+            onClick={() => {
+              playSound('click');
+              onLogout();
+            }}
             className="p-2.5 text-[#444] hover:text-red-500 transition-colors bg-[#141414] border border-[#222] rounded-xl"
           >
             <LogOut className="w-5 h-5" />
@@ -115,7 +132,10 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
             <p className="text-xs text-[#666] mt-1">Join an existing assembly or start your own.</p>
           </div>
           <button 
-            onClick={() => setIsCreating(true)}
+            onClick={() => {
+              playSound('click');
+              setIsCreating(true);
+            }}
             className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white text-black px-8 py-3 rounded-2xl font-thematic text-xl hover:bg-gray-200 transition-all shadow-xl shadow-white/5"
           >
             <Plus className="w-5 h-5" />
@@ -175,7 +195,10 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
                 whileHover={{ y: -4 }}
-                onClick={() => onJoinRoom(room.id)}
+                onClick={() => {
+                  playSound('click');
+                  onJoinRoom(room.id);
+                }}
                 className="group relative bg-[#1a1a1a] border border-[#222] rounded-3xl p-6 text-left transition-all hover:border-red-900/50 hover:shadow-2xl hover:shadow-red-900/5"
               >
                 <div className="flex items-start justify-between mb-4">
@@ -348,7 +371,10 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
                 <div className="flex gap-3">
                   <button 
                     type="button"
-                    onClick={() => setIsCreating(false)}
+                    onClick={() => {
+                      playSound('click');
+                      setIsCreating(false);
+                    }}
                     className="flex-1 py-3 border border-[#222] text-[#666] font-serif italic rounded-xl hover:bg-[#222] transition-colors"
                   >
                     Cancel

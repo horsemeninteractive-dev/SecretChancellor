@@ -690,6 +690,7 @@ export class GameEngine {
 
     updateSuspicionFromNomination(s, president.id, chancellor.id);
 
+    // Ensure we have 3 cards to draw (should already be true due to pre-round reshuffle)
     if (s.deck.length < 3) {
       s.deck = shuffle([...s.deck, ...s.discard]);
       s.discard = [];
@@ -944,6 +945,14 @@ export class GameEngine {
 
     state.round++;
     state.log.push(`--- Round ${state.round} Started ---`);
+
+    // Reshuffle if fewer than 3 cards remain before the round starts
+    if (state.deck.length < 3) {
+      state.log.push("Fewer than 3 cards in deck. Reshuffling discard pile...");
+      state.deck = shuffle([...state.deck, ...state.discard]);
+      state.discard = [];
+    }
+
     state.messages.push({
       sender: "System",
       text: `Round ${state.round} Started`,
@@ -1025,6 +1034,13 @@ export class GameEngine {
     state.phase = "Election";
     state.declarations = [];
     state.log.push(`--- Round ${state.round} Started ---`);
+
+    // Reshuffle if fewer than 3 cards remain (though deck is full at start)
+    if (state.deck.length < 3) {
+      state.deck = shuffle([...state.deck, ...state.discard]);
+      state.discard = [];
+    }
+
     state.messages.push({
       sender: "System",
       text: `Round ${state.round} Started`,

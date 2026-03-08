@@ -46,3 +46,15 @@ export const getVoteStyles = (styleId: string | undefined, type: 'Ja' | 'Nein') 
       return isJa ? "bg-white border-white text-black" : "bg-black border-[#333] text-white";
   }
 };
+
+export const getBackgroundTexture = (id: string | undefined) => {
+  switch(id) {
+    case 'bg-leather': return 'https://www.transparenttextures.com/patterns/dark-leather.png';
+    case 'bg-brushed': return 'https://www.transparenttextures.com/patterns/brushed-alum.png';
+    case 'bg-diamonds': return 'https://www.transparenttextures.com/patterns/diagmonds-light.png';
+    case 'bg-wood': return 'https://www.transparenttextures.com/patterns/dark-wood.png';
+    case 'bg-paper': return 'https://www.transparenttextures.com/patterns/old-mathematics.png';
+    case 'bg-concrete': return 'https://www.transparenttextures.com/patterns/concrete-wall.png';
+    default: return 'https://www.transparenttextures.com/patterns/carbon-fibre.png';
+  }
+};

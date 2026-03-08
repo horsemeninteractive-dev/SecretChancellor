@@ -27,7 +27,7 @@ export interface CosmeticItem {
   id: string;
   name: string;
   price: number;
-  type: 'frame' | 'badge' | 'policy' | 'vote';
+  type: 'frame' | 'badge' | 'policy' | 'vote' | 'music' | 'sound' | 'background';
   imageUrl?: string;
   description?: string;
 }
@@ -42,6 +42,9 @@ export interface User {
   activeFrame?: string;
   activePolicyStyle?: string;
   activeVotingStyle?: string;
+  activeMusic?: string;
+  activeSoundPack?: string;
+  activeBackground?: string;
 }
 export const User = {};
 

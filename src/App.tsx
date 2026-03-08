@@ -9,7 +9,8 @@ import { twMerge } from 'tailwind-merge';
 import { Auth } from './components/Auth';
 import { Lobby } from './components/Lobby';
 import { Profile } from './components/Profile';
-import { getFrameStyles, getPolicyStyles, getVoteStyles } from './lib/cosmetics';
+import { getFrameStyles, getPolicyStyles, getVoteStyles, getBackgroundTexture } from './lib/cosmetics';
+import { MUSIC_TRACKS, SOUND_PACKS } from './lib/audio';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -95,7 +96,11 @@ export default function App() {
   );
 
   // Sound effects
-  const playSound = (url: string) => {
+  const playSound = (soundKey: string) => {
+    if (!isSoundOn) return;
+    const pack = user?.activeSoundPack || 'default';
+    const url = SOUND_PACKS[pack]?.[soundKey] || SOUND_PACKS['default'][soundKey];
+    if (!url) return;
     const audio = new Audio(url);
     audio.volume = soundVolume / 100;
     audio.play().catch(() => {});
@@ -126,7 +131,7 @@ export default function App() {
       // For now, generic vote sound if it's not the local user (who already plays it inline)
       const me = gameState.players.find(p => p.id === socket.id);
       if (me && !me.vote) {
-        playSound('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+        playSound('click');
       }
     }
     prevVotes.current = currentVotes;
@@ -134,7 +139,7 @@ export default function App() {
     // Player death sound
     const currentAliveCount = gameState.players.filter(p => p.isAlive).length;
     if (prevAliveCount.current > 0 && currentAliveCount < prevAliveCount.current) {
-      playSound('https://assets.mixkit.co/active_storage/sfx/2568/2568-preview.mp3'); // Gunshot/Death
+      playSound('death'); // Gunshot/Death
     }
     prevAliveCount.current = currentAliveCount;
 
@@ -142,9 +147,9 @@ export default function App() {
     if (prevPhase.current === 'Voting' && gameState.phase !== 'Voting') {
       // Check if election passed or failed
       if (gameState.phase === 'Legislative_President') {
-        playSound('https://assets.mixkit.co/active_storage/sfx/2569/2569-preview.mp3'); // Election Passed
+        playSound('election_passed'); // Election Passed
       } else if (gameState.phase === 'Election') {
-        playSound('https://assets.mixkit.co/active_storage/sfx/2567/2567-preview.mp3'); // Election Failed
+        playSound('election_failed'); // Election Failed
       }
     }
 
@@ -165,9 +170,9 @@ export default function App() {
       const won = gameState.winner === myTeam;
       
       if (won) {
-        playSound('https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3'); // Victory
+        playSound('victory'); // Victory
       } else {
-        playSound('https://assets.mixkit.co/active_storage/sfx/251/251-preview.mp3'); // Defeat
+        playSound('defeat'); // Defeat
       }
     }
 
@@ -311,11 +316,6 @@ export default function App() {
       chatGhostRef.current.scrollLeft = chatInputRef.current.scrollLeft;
     }
   };
-  const musicRef = useRef<{
-    ctx: AudioContext;
-    master: GainNode;
-    stop: () => void;
-  } | null>(null);
   const [chatText, setChatText] = useState('');
   const [investigationResult, setInvestigationResult] = useState<{ targetName: string; role: Role } | null>(null);
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -323,188 +323,31 @@ export default function App() {
   const speakingTimers = useRef<Record<string, NodeJS.Timeout>>({});
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const musicAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // ── Procedural ambient music engine ─────────────────────────────────────
   useEffect(() => {
     if (!isMusicOn) {
-      musicRef.current?.stop();
-      musicRef.current = null;
+      musicAudioRef.current?.pause();
       return;
     }
 
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const master = ctx.createGain();
-    master.gain.setValueAtTime(0, ctx.currentTime);
-    master.gain.linearRampToValueAtTime(musicVolume / 100, ctx.currentTime + 3);
-    master.connect(ctx.destination);
-
-    const timers: ReturnType<typeof setTimeout>[] = [];
-    const nodes: AudioNode[] = [];
-
-    // Helper: create a simple reverb convolver
-    const makeReverb = (duration = 2.5, decay = 2.0) => {
-      const len = ctx.sampleRate * duration;
-      const buf = ctx.createBuffer(2, len, ctx.sampleRate);
-      for (let c = 0; c < 2; c++) {
-        const d = buf.getChannelData(c);
-        for (let i = 0; i < len; i++) {
-          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
-        }
-      }
-      const conv = ctx.createConvolver();
-      conv.buffer = buf;
-      return conv;
-    };
-
-    const reverb = makeReverb(3, 2.2);
-    const reverbGain = ctx.createGain();
-    reverbGain.gain.value = 0.35;
-    reverb.connect(reverbGain);
-    reverbGain.connect(master);
-    nodes.push(reverb, reverbGain);
-
-    // Helper: play a note with a soft piano-like attack/decay
-    const playNote = (freq: number, startTime: number, duration: number, vol: number, type: OscillatorType = 'sine') => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = type;
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0, startTime);
-      gain.gain.linearRampToValueAtTime(vol, startTime + 0.08);
-      gain.gain.exponentialRampToValueAtTime(vol * 0.4, startTime + 0.4);
-      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + duration);
-      osc.connect(gain);
-      gain.connect(master);
-      gain.connect(reverb);
-      osc.start(startTime);
-      osc.stop(startTime + duration + 0.05);
-    };
-
-    // Helper: continuous pad oscillator with slow LFO
-    const makePad = (freq: number, vol: number, lfoRate = 0.08) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const lfo = ctx.createOscillator();
-      const lfoGain = ctx.createGain();
-      osc.type = 'sawtooth';
-      osc.frequency.value = freq;
-      gain.gain.value = 0;
-      lfo.type = 'sine';
-      lfo.frequency.value = lfoRate;
-      lfoGain.gain.value = freq * 0.003;
-      lfo.connect(lfoGain);
-      lfoGain.connect(osc.frequency);
-
-      // Soft lowpass
-      const filter = ctx.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 800;
-      filter.Q.value = 0.5;
-
-      osc.connect(filter);
-      filter.connect(gain);
-      gain.connect(master);
-      gain.connect(reverb);
-      osc.start();
-      lfo.start();
-      nodes.push(osc, gain, lfo, lfoGain, filter);
-
-      // Fade in
-      gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + 4);
-      return gain;
-    };
-
-    // D minor tonal center — tense, political, minor key
-    // Chord progression: Dm - Bb - Gm - A (cycle ~32s)
-    const CHORDS: [number, number, number][] = [
-      [146.83, 220.00, 293.66],  // Dm  (D3, A3, D4)
-      [116.54, 174.61, 233.08],  // Bb  (Bb2, F3, Bb3)
-      [98.00,  146.83, 196.00],  // Gm  (G2, D3, G3)
-      [110.00, 164.81, 220.00],  // A   (A2, E3, A3)
-    ];
-    const CHORD_DURATION = 8; // seconds each
-
-    // Low bass drone — root note oscillating slowly
-    const bass = makePad(36.71, 0.09, 0.04); // D1
-    nodes.push(bass);
-
-    // Pad layers for the chord tones
-    const padGains: GainNode[] = [];
-    for (const freq of CHORDS[0]) {
-      padGains.push(makePad(freq, 0.022, 0.07 + Math.random() * 0.04));
+    const trackKey = user?.activeMusic || 'music-ambient';
+    const url = MUSIC_TRACKS[trackKey] || MUSIC_TRACKS['music-ambient'];
+    
+    if (!musicAudioRef.current) {
+      musicAudioRef.current = new Audio(url);
+      musicAudioRef.current.loop = true;
+    } else if (musicAudioRef.current.src !== url) {
+      musicAudioRef.current.src = url;
     }
-
-    let chordIdx = 0;
-    const cycleChord = () => {
-      chordIdx = (chordIdx + 1) % CHORDS.length;
-      const chord = CHORDS[chordIdx];
-      chord.forEach((freq, i) => {
-        if (padGains[i]) {
-          padGains[i].gain.cancelScheduledValues(ctx.currentTime);
-          padGains[i].gain.setValueAtTime(padGains[i].gain.value, ctx.currentTime);
-          padGains[i].gain.linearRampToValueAtTime(0.001, ctx.currentTime + 1.5);
-          // Find the oscillator connected to this gain and retune it
-        }
-      });
-      // Retune via new pads (simpler than retuning existing)
-      const t = setTimeout(cycleChord, CHORD_DURATION * 1000);
-      timers.push(t);
-    };
-    const chordTimer = setTimeout(cycleChord, CHORD_DURATION * 1000);
-    timers.push(chordTimer);
-
-    // Melodic accent notes — sparse, haunting
-    // D minor pentatonic: D, F, G, A, C  (×2 octaves)
-    const MELODY_NOTES = [293.66, 349.23, 392.00, 440.00, 523.25, 587.33, 698.46, 784.00];
-    const scheduleMelody = () => {
-      const now = ctx.currentTime;
-      // 3-5 note phrase, spaced 1.2-2.4s apart
-      const phraseLen = 3 + Math.floor(Math.random() * 3);
-      for (let i = 0; i < phraseLen; i++) {
-        const t = now + 0.5 + i * (1.2 + Math.random() * 1.2);
-        const freq = MELODY_NOTES[Math.floor(Math.random() * MELODY_NOTES.length)];
-        playNote(freq, t, 1.8 + Math.random(), 0.04 + Math.random() * 0.03);
-      }
-      // Next phrase: 8-18 seconds later
-      const next = 8000 + Math.random() * 10000;
-      const t = setTimeout(scheduleMelody, next);
-      timers.push(t);
-    };
-    const melodyDelay = setTimeout(scheduleMelody, 4000);
-    timers.push(melodyDelay);
-
-    // Subtle low pulse (heartbeat feel) — every ~2.4s
-    const schedulePulse = () => {
-      const now = ctx.currentTime;
-      playNote(58.27, now, 1.2, 0.07, 'sine'); // Bb1
-      const t = setTimeout(schedulePulse, 2400 + Math.random() * 400);
-      timers.push(t);
-    };
-    const pulseDelay = setTimeout(schedulePulse, 2000);
-    timers.push(pulseDelay);
-
-    musicRef.current = {
-      ctx,
-      master,
-      stop: () => {
-        timers.forEach(clearTimeout);
-        master.gain.setValueAtTime(master.gain.value, ctx.currentTime);
-        master.gain.linearRampToValueAtTime(0, ctx.currentTime + 2);
-        setTimeout(() => { try { ctx.close(); } catch (_) {} }, 2500);
-      },
-    };
+    
+    musicAudioRef.current.volume = musicVolume / 100;
+    musicAudioRef.current.play().catch(() => {});
 
     return () => {
-      musicRef.current?.stop();
-      musicRef.current = null;
+      musicAudioRef.current?.pause();
     };
-  }, [isMusicOn]);
-
-  useEffect(() => {
-    if (musicRef.current) {
-      musicRef.current.master.gain.setValueAtTime(musicVolume / 100, musicRef.current.ctx.currentTime);
-    }
-  }, [musicVolume]);
+  }, [isMusicOn, user?.activeMusic, musicVolume]);
 
   useEffect(() => {
     if (token) {
@@ -525,6 +368,9 @@ export default function App() {
       if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
         audioContextRef.current.resume();
       }
+      if (isMusicOn && musicAudioRef.current && musicAudioRef.current.paused) {
+        musicAudioRef.current.play().catch(() => {});
+      }
     };
     window.addEventListener('click', handleInteraction);
     window.addEventListener('keydown', handleInteraction);
@@ -532,7 +378,7 @@ export default function App() {
       window.removeEventListener('click', handleInteraction);
       window.removeEventListener('keydown', handleInteraction);
     };
-  }, []);
+  }, [isMusicOn]);
 
   useEffect(() => {
     if (chatEndRef.current) {
@@ -937,27 +783,16 @@ export default function App() {
     return 'text-[#aaa] border-[#333]';
   };
 
+  let content;
+
   if (!token || !user) {
-    return (
+    content = (
       <>
         <Auth onAuthSuccess={handleAuthSuccess} />
-        <AnimatePresence>
-          {isProfileOpen && user && (
-            <Profile 
-              user={user} 
-              token={token || ''}
-              onClose={() => setIsProfileOpen(false)} 
-              onUpdateUser={setUser}
-              settings={{ isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen }}
-            />
-          )}
-        </AnimatePresence>
       </>
     );
-  }
-
-  if (!isInteracted && !document.fullscreenElement) {
-    return (
+  } else if (!isInteracted && !document.fullscreenElement) {
+    content = (
       <div className="min-h-screen bg-texture flex items-center justify-center p-4">
         <motion.div 
           initial={{ opacity: 0, scale: 0.9 }}
@@ -978,40 +813,36 @@ export default function App() {
         </motion.div>
       </div>
     );
-  }
-
-  if (!joined || !gameState) {
-    return (
-      <>
-        <Lobby 
-          user={user} 
-          onJoinRoom={handleJoinRoom} 
-          onLogout={handleLogout}
-          onOpenProfile={() => setIsProfileOpen(true)}
-        />
-        <AnimatePresence>
-          {isProfileOpen && (
-            <Profile 
-              user={user} 
-              token={token}
-              onClose={() => setIsProfileOpen(false)} 
-              onUpdateUser={setUser}
-              settings={{ isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen }}
-            />
-          )}
-        </AnimatePresence>
-      </>
+  } else if (!joined || !gameState) {
+    content = (
+      <Lobby 
+        user={user} 
+        onJoinRoom={handleJoinRoom} 
+        onLogout={handleLogout}
+        onOpenProfile={() => {
+          playSound('click');
+          setIsProfileOpen(true);
+        }}
+        playSound={playSound}
+      />
     );
-  }
+  } else {
+    const me = gameState.players.find(p => p.id === socket.id);
+    const isPresidentialCandidate = me?.isPresidentialCandidate;
+    const isChancellorCandidate = me?.isChancellorCandidate;
+    const isPresident = me?.isPresident;
+    const isChancellor = me?.isChancellor;
 
-  const me = gameState.players.find(p => p.id === socket.id);
-  const isPresidentialCandidate = me?.isPresidentialCandidate;
-  const isChancellorCandidate = me?.isChancellorCandidate;
-  const isPresident = me?.isPresident;
-  const isChancellor = me?.isChancellor;
-
-  return (
-    <div className="fixed inset-0 bg-texture text-[#e4e3e0] font-sans flex flex-col overflow-hidden">
+    content = (
+      <div 
+        className={cn(
+          "fixed inset-0 bg-texture text-[#e4e3e0] font-sans flex flex-col overflow-hidden transition-all duration-1000",
+          gameState?.fascistPolicies >= 3 && gameState?.phase !== 'GameOver' && "danger-zone-pulse"
+        )}
+        style={{ 
+          backgroundImage: `radial-gradient(circle at 50% 50%, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 1) 100%), url("${getBackgroundTexture(user?.activeBackground)}")` 
+        }}
+      >
       {/* Header */}
       <header className="h-16 sm:h-20 border-b border-[#222] bg-[#1a1a1a] px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-lg z-10">
         <div className="flex items-center gap-2 sm:gap-4">
@@ -1054,7 +885,10 @@ export default function App() {
             {isVoiceActive ? <Mic className="w-3.5 h-3.5 sm:w-4 h-4" /> : <MicOff className="w-3.5 h-3.5 sm:w-4 h-4" />}
           </button>
           <button 
-            onClick={() => setIsChatOpen(true)}
+            onClick={() => {
+              playSound('click');
+              setIsChatOpen(true);
+            }}
             className="p-2 sm:p-2.5 rounded-xl border border-[#333] bg-[#222] text-[#666] hover:text-white transition-all relative"
           >
             <MessageSquare className="w-3.5 h-3.5 sm:w-4 h-4" />
@@ -1064,7 +898,10 @@ export default function App() {
           </button>
           {gameState.roundHistory && gameState.roundHistory.length > 0 && (
             <button
-              onClick={() => setIsHistoryOpen(true)}
+              onClick={() => {
+                playSound('click');
+                setIsHistoryOpen(true);
+              }}
               className="p-2 sm:p-2.5 rounded-xl border border-[#333] bg-[#222] text-[#666] hover:text-white transition-all relative"
               title="Round History"
             >
@@ -1076,7 +913,10 @@ export default function App() {
           )}
           {gameState.phase !== 'Lobby' && (
             <button 
-              onClick={() => setIsDossierOpen(true)}
+              onClick={() => {
+                playSound('click');
+                setIsDossierOpen(true);
+              }}
               className={cn(
                 "p-2 sm:p-2.5 rounded-xl border transition-all",
                 privateInfo ? (privateInfo.role === 'Liberal' ? "border-blue-900/50 bg-blue-900/20" : "border-red-900/50 bg-red-900/20") : "border-[#333] bg-[#222]"
@@ -1092,7 +932,10 @@ export default function App() {
             </button>
           )}
           <button 
-            onClick={() => setIsProfileOpen(true)}
+            onClick={() => {
+              playSound('click');
+              setIsProfileOpen(true);
+            }}
             className="w-8 h-8 sm:w-10 sm:h-10 rounded-xl bg-[#222] border border-[#333] flex items-center justify-center hover:border-red-900/50 transition-colors overflow-hidden relative shrink-0"
           >
             {user?.avatarUrl ? (
@@ -1117,10 +960,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className={cn(
-        "flex-1 flex flex-col min-h-0 relative",
-        gameState?.fascistPolicies >= 3 && gameState?.phase !== 'GameOver' && "animate-danger-pulse"
-      )}>
+      <main className="flex-1 flex flex-col min-h-0 relative">
         {/* Policy Tracks (Compact) */}
         <div className="p-4 grid grid-cols-2 gap-4 bg-[#1a1a1a]/50 border-b border-[#222] shrink-0">
           <div className="space-y-2">
@@ -1406,7 +1246,10 @@ export default function App() {
                     if (!isEligible) return null;
                     return (
                       <button 
-                        onClick={() => socket.emit('nominateChancellor', p.id)}
+                        onClick={() => {
+                          playSound('click');
+                          socket.emit('nominateChancellor', p.id);
+                        }}
                         className="absolute inset-0 bg-blue-900/80 rounded-xl flex items-center justify-center font-thematic tracking-wide text-white text-[12px] uppercase"
                       >
                         Nominate
@@ -1416,7 +1259,10 @@ export default function App() {
                 )}
                 {gameState.phase === 'Executive_Action' && isPresident && p.id !== socket.id && p.isAlive && (
                   <button 
-                    onClick={() => socket.emit('performExecutiveAction', p.id)}
+                    onClick={() => {
+                      playSound('click');
+                      socket.emit('performExecutiveAction', p.id);
+                    }}
                     className="absolute inset-0 bg-red-900/80 rounded-xl flex items-center justify-center font-serif italic text-white text-[9px] text-center px-1"
                   >
                     {gameState.currentExecutiveAction}
@@ -1451,7 +1297,7 @@ export default function App() {
                 <button 
                   onClick={() => {
                     socket.emit('vote', 'Ja');
-                    playSound('https://assets.mixkit.co/active_storage/sfx/2571/2571-preview.mp3');
+                    playSound('click');
                   }}
                   className={cn(
                     "flex-1 h-20 sm:h-24 rounded-xl border-2 sm:border-4 flex flex-col items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-lg",
@@ -1464,7 +1310,7 @@ export default function App() {
                 <button 
                   onClick={() => {
                     socket.emit('vote', 'Nein');
-                    playSound('https://assets.mixkit.co/active_storage/sfx/251/251-preview.mp3');
+                    playSound('defeat');
                   }}
                   className={cn(
                     "flex-1 h-20 sm:h-24 rounded-xl border-2 sm:border-4 flex flex-col items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-lg",
@@ -1482,7 +1328,10 @@ export default function App() {
                 {gameState.drawnPolicies.map((p, i) => (
                   <button 
                     key={i}
-                    onClick={() => socket.emit('presidentDiscard', i)}
+                    onClick={() => {
+                      playSound('click');
+                      socket.emit('presidentDiscard', i);
+                    }}
                     className={cn(
                       "flex-1 h-20 sm:h-28 rounded-lg border-2 flex flex-col items-center justify-center gap-1 transition-all",
                       getPolicyStyles(user?.activePolicyStyle, p)
@@ -1500,7 +1349,10 @@ export default function App() {
                 {gameState.chancellorPolicies.map((p, i) => (
                   <button 
                     key={i}
-                    onClick={() => socket.emit('chancellorPlay', i)}
+                    onClick={() => {
+                      playSound('click');
+                      socket.emit('chancellorPlay', i);
+                    }}
                     className={cn(
                       "flex-1 h-20 sm:h-28 rounded-lg border-2 flex flex-col items-center justify-center gap-2 transition-all",
                       getPolicyStyles(user?.activePolicyStyle, p)
@@ -1531,7 +1383,10 @@ export default function App() {
             {gameState.phase === 'Lobby' && (
               <div className="flex flex-col gap-2 w-full max-w-xs h-full justify-center">
                 <button 
-                  onClick={() => socket.emit('toggleReady')}
+                  onClick={() => {
+                    playSound('click');
+                    socket.emit('toggleReady');
+                  }}
                   className={cn(
                     "py-3 font-thematic text-xl rounded-lg shadow-xl transition-all active:scale-95",
                     me?.isReady 
@@ -1552,7 +1407,10 @@ export default function App() {
 
           {/* Log Bar (Tappable) */}
           <button 
-            onClick={() => setIsLogOpen(true)}
+            onClick={() => {
+              playSound('click');
+              setIsLogOpen(true);
+            }}
             className="h-12 px-4 flex items-center gap-3 bg-[#141414] hover:bg-[#1a1a1a] transition-colors border-t border-[#222] group"
           >
             <Scroll className="w-4 h-4 text-white group-hover:text-red-500 transition-colors" />
@@ -1712,7 +1570,10 @@ export default function App() {
                 <MessageSquare className="w-4 h-4 text-white" />
                 <h3 className="font-thematic text-sm uppercase tracking-wider">Assembly Chat</h3>
               </div>
-              <button onClick={() => setIsChatOpen(false)} className="p-2 text-[#666] hover:text-white">
+              <button onClick={() => {
+                playSound('click');
+                setIsChatOpen(false);
+              }} className="p-2 text-[#666] hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1820,7 +1681,10 @@ export default function App() {
                   />
                   <button 
                     type="button"
-                    onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                    onClick={() => {
+                      playSound('click');
+                      setShowEmojiPicker(!showEmojiPicker);
+                    }}
                     disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
                     className="absolute right-10 top-1/2 -translate-y-1/2 p-1 text-[#666] hover:text-white disabled:opacity-50"
                   >
@@ -2349,17 +2213,25 @@ export default function App() {
           background: #444;
         }
       `}</style>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {content}
       <AnimatePresence>
-        {isProfileOpen && (
+        {isProfileOpen && user && (
           <Profile 
-            user={user!} 
-            token={token!}
+            user={user} 
+            token={token || ''}
             onClose={() => setIsProfileOpen(false)} 
             onUpdateUser={setUser}
+            playSound={playSound}
             settings={{ isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen }}
           />
         )}
       </AnimatePresence>
-    </div>
+    </>
   );
 }
