@@ -65,12 +65,12 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
       <header className="h-20 border-b border-[#222] bg-[#1a1a1a]/50 backdrop-blur-xl px-6 flex items-center justify-between sticky top-0 z-50">
         <div className="flex items-center gap-4">
           <div className="w-8 h-8 sm:w-10 sm:h-10 bg-[#141414] rounded-xl flex items-center justify-center border border-white/40 shrink-0 overflow-hidden">
-            <img src="https://storage.googleapis.com/secretchancellor/SC.png" alt="Secret Chancellor Logo" className="w-full h-full object-contain p-1" referrerPolicy="no-referrer" />
+            <img src="https://storage.googleapis.com/secretchancellor/SC.png" alt="The Assembly Logo" className="w-full h-full object-contain p-1" referrerPolicy="no-referrer" />
           </div>
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
-              <h1 className="text-base sm:text-2xl font-thematic text-white tracking-wide leading-none truncate">Secret Chancellor</h1>
-              <span className="text-[8px] font-mono text-red-500/60 border border-red-900/40 rounded px-1 py-0.5 leading-none shrink-0">v0.8.5</span>
+              <h1 className="text-base sm:text-2xl font-thematic text-white tracking-wide leading-none truncate">The Assembly</h1>
+              <span className="text-[8px] font-mono text-red-500/60 border border-red-900/40 rounded px-1 py-0.5 leading-none shrink-0">v0.8.8</span>
             </div>
             <p className="text-[8px] sm:text-[10px] uppercase tracking-widest text-[#666] font-mono mt-0.5">Assembly Lobby</p>
           </div>
@@ -129,7 +129,7 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <h2 className="text-3xl font-thematic text-white tracking-wide">Available Assemblies</h2>
-            <p className="text-xs text-[#666] mt-1">Join an existing assembly or start your own.</p>
+            <p className="text-xs text-[#666] mt-1">Join an existing session or convene your own.</p>
           </div>
           <button 
             onClick={() => {

@@ -9,7 +9,7 @@ import { GameState, Player } from "./src/types.ts";
 import { createDeck } from "./server/utils.ts";
 import { GameEngine } from "./server/gameEngine.ts";
 import { registerRoutes } from "./server/apiRoutes.ts";
-import { getUserById } from "./server/supabaseService.ts";
+import { getUserById, sendFriendRequest, acceptFriendRequest, getFriends } from "./server/supabaseService.ts";
 
 const PORT = 3000;
 
@@ -22,8 +22,9 @@ async function startServer() {
   const io = new Server(httpServer, { cors: { origin: "*" } });
 
   const engine = new GameEngine({ io });
+  const userSockets = new Map<string, string>();
 
-  registerRoutes(app, io, engine.rooms);
+  registerRoutes(app, io, engine.rooms, userSockets);
 
   io.on("connection", (socket) => {
     const getRoom = (): string | undefined =>
@@ -42,8 +43,8 @@ async function startServer() {
           spectators: [],
           mode: mode || "Ranked",
           phase: "Lobby",
-          liberalPolicies: 0,
-          fascistPolicies: 0,
+          civilDirectives: 0,
+          stateDirectives: 0,
           electionTracker: 0,
           deck: createDeck(),
           discard: [],
@@ -104,6 +105,15 @@ async function startServer() {
 
       let avatarUrl: string | undefined;
       if (userId) {
+        socket.data.userId = userId;
+        userSockets.set(userId, socket.id);
+        const friends = await getFriends(userId);
+        for (const friend of friends) {
+          const friendSocketId = userSockets.get(friend.id);
+          if (friendSocketId) {
+            io.to(friendSocketId).emit("userStatusChanged", { userId, isOnline: true });
+          }
+        }
         const user = await getUserById(userId);
         if (user) avatarUrl = user.avatarUrl;
       }
@@ -164,6 +174,26 @@ async function startServer() {
       io.to(to).emit("signal", { from, signal });
     });
 
+    socket.on("sendFriendRequest", async (targetUserId) => {
+      const userId = socket.data.userId;
+      if (!userId) return;
+      await sendFriendRequest(userId, targetUserId);
+      const targetSocketId = userSockets.get(targetUserId);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("friendRequestReceived", { fromUserId: userId });
+      }
+    });
+
+    socket.on("acceptFriendRequest", async (targetUserId) => {
+      const userId = socket.data.userId;
+      if (!userId) return;
+      await acceptFriendRequest(userId, targetUserId);
+      const targetSocketId = userSockets.get(targetUserId);
+      if (targetSocketId) {
+        io.to(targetSocketId).emit("friendRequestAccepted", { fromUserId: userId });
+      }
+    });
+
     socket.on("nominateChancellor", (chancellorId) => {
       const roomId = getRoom();
       if (!roomId) return;
@@ -201,8 +231,8 @@ async function startServer() {
       player.vote = vote;
 
       if (state.players.filter(p => p.isAlive && !p.vote).length === 0) {
-        const jaVotes = state.players.filter(p => p.vote === "Ja").length;
-        const neinVotes = state.players.filter(p => p.vote === "Nein").length;
+        const jaVotes = state.players.filter(p => p.vote === "Aye").length;
+        const neinVotes = state.players.filter(p => p.vote === "Nay").length;
         engine.handleVoteResult(state, roomId, jaVotes, neinVotes);
       } else {
         engine.broadcastState(roomId);
@@ -216,9 +246,12 @@ async function startServer() {
       const state = engine.rooms.get(roomId);
       if (!state || state.phase !== "Legislative_President") return;
       if (state.presidentId !== socket.id) return;
+      // Guard: timer may have already auto-discarded and cleared the hand
+      if (state.drawnPolicies.length === 0) return;
 
       state.presidentSaw = [...state.drawnPolicies];
       const discarded = state.drawnPolicies.splice(idx, 1)[0];
+      if (!discarded) return;
       state.discard.push(discarded);
       state.chancellorPolicies = [...state.drawnPolicies];
       state.chancellorSaw = [...state.chancellorPolicies];
@@ -235,13 +268,18 @@ async function startServer() {
       const state = engine.rooms.get(roomId);
       if (!state || state.phase !== "Legislative_Chancellor") return;
       if (state.chancellorId !== socket.id) return;
+      // Guard: timer may have already auto-played and cleared the hand
+      if (state.chancellorPolicies.length === 0) return;
 
       const played = state.chancellorPolicies.splice(idx, 1)[0];
+      // Guard: splice on a partially-cleared array can return undefined
+      if (!played) return;
       const discarded = state.chancellorPolicies[0];
       state.discard.push(discarded);
       state.chancellorPolicies = [];
       engine.triggerPolicyEnactment(state, roomId, played, false, state.chancellorId);
-      engine.startActionTimer(roomId);
+      // Do NOT restart the timer here — phase stays Legislative_Chancellor during
+      // the 6 s animation window; restarting would create a stale misfire.
       engine.broadcastState(roomId);
     });
 
@@ -263,13 +301,18 @@ async function startServer() {
         state.declarations.push({
           playerId: player.id,
           playerName: player.name,
-          libs: data.libs,
-          fas: data.fas,
+          civ: data.civ,
+          sta: data.sta,
+          ...(data.type === 'President' ? { drewCiv: data.drewCiv, drewSta: data.drewSta } : {}),
           type: data.type,
           timestamp: Date.now(),
         });
+        const passedOrReceived = data.type === 'President' ? 'passed' : 'received';
+        const drewStr = data.type === 'President' && data.drewCiv !== undefined
+          ? ` (drew ${data.drewCiv}C/${data.drewSta}S)`
+          : '';
         state.log.push(
-          `${player.name} (${data.type}) declared seeing ${data.libs} Liberal and ${data.fas} Fascist policies.`
+          `${player.name} (${data.type}) declared ${passedOrReceived} ${data.civ} Civil and ${data.sta} State directives.${drewStr}`
         );
       }
 
@@ -337,8 +380,8 @@ async function startServer() {
 
       Object.assign(state, {
         phase: "Lobby",
-        liberalPolicies: 0,
-        fascistPolicies: 0,
+        civilDirectives: 0,
+        stateDirectives: 0,
         electionTracker: 0,
         deck: createDeck(),
         discard: [],
@@ -384,7 +427,18 @@ async function startServer() {
       engine.handleLeave(socket, roomId);
     });
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
+      if (socket.data.userId) {
+        const userId = socket.data.userId;
+        userSockets.delete(userId);
+        const friends = await getFriends(userId);
+        for (const friend of friends) {
+          const friendSocketId = userSockets.get(friend.id);
+          if (friendSocketId) {
+            io.to(friendSocketId).emit("userStatusChanged", { userId, isOnline: false });
+          }
+        }
+      }
       engine.rooms.forEach((state, roomId) => {
         if (state.players.find(p => p.id === socket.id)) {
           engine.handleLeave(socket, roomId);

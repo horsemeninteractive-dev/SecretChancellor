@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Trophy, Coins, Shield, User as UserIcon, Check, ShoppingBag, ArrowLeft, Star, Heart, Zap, Flame, Scroll, Play, Pause } from 'lucide-react';
 import { User, CosmeticItem, Policy } from '../types';
+import { FriendsList } from './FriendsList';
 import { cn } from '../lib/utils';
 import { getPolicyStyles, getVoteStyles, getFrameStyles } from '../lib/cosmetics';
 
@@ -29,9 +30,9 @@ interface ProfileProps {
 
 const SHOP_ITEMS: CosmeticItem[] = [
   // Frames
-  { id: 'frame-red', name: 'Crimson Order', price: 500, type: 'frame', description: 'A standard fascist-themed border.' },
+  { id: 'frame-red', name: 'Iron Vanguard', price: 500, type: 'frame', description: 'A standard State-faction border.' },
   { id: 'frame-gold', name: 'Golden Assembly', price: 1500, type: 'frame', description: 'For the most distinguished delegates.' },
-  { id: 'frame-blue', name: 'Liberal Guard', price: 500, type: 'frame', description: 'A standard liberal-themed border.' },
+  { id: 'frame-blue', name: 'Civil Guard', price: 500, type: 'frame', description: 'A standard Civil-faction border.' },
   { id: 'frame-rainbow', name: 'Spectrum Delegate', price: 3000, type: 'frame', description: 'A vibrant, shifting spectrum of colors.' },
   { id: 'frame-neon', name: 'Neon Resistance', price: 2000, type: 'frame', description: 'Glows with the energy of the underground.' },
   { id: 'frame-shadow', name: 'Shadow Cabal', price: 1000, type: 'frame', description: 'A dark, brooding frame for the secretive.' },
@@ -46,7 +47,7 @@ const SHOP_ITEMS: CosmeticItem[] = [
   // Policy Cards
   { id: 'policy-vintage', name: 'Vintage Press', price: 1200, type: 'policy', description: 'A classic, weathered newspaper aesthetic.' },
   { id: 'policy-modern', name: 'Modern Minimal', price: 1000, type: 'policy', description: 'Clean lines and bold typography.' },
-  { id: 'policy-blueprint', name: 'Statist Blueprint', price: 1500, type: 'policy', description: 'Technical drawings on blueprint paper.' },
+  { id: 'policy-blueprint', name: 'State Blueprint', price: 1500, type: 'policy', description: 'Technical drawings on blueprint paper.' },
   { id: 'policy-blood', name: 'Blood & Iron', price: 2000, type: 'policy', description: 'Industrial metal with crimson accents.' },
 
   // Voting Cards
@@ -81,7 +82,7 @@ const SHOP_ITEMS: CosmeticItem[] = [
 ];
 
 export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token, playSound, playMusic, stopMusic, settings }) => {
-  const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'settings' | 'pass'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'settings' | 'pass' | 'friends'>('stats');
   const [shopCategory, setShopCategory] = useState<'frame' | 'policy' | 'vote' | 'music' | 'sound' | 'background'>('frame');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -303,18 +304,33 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
             Settings
             {activeTab === 'settings' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
           </button>
+          <button 
+            onClick={() => {
+              playSound('click');
+              setActiveTab('friends');
+            }}
+            className={cn(
+              "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
+              activeTab === 'friends' ? "text-white" : "text-[#444] hover:text-[#666]"
+            )}
+          >
+            Friends
+            {activeTab === 'friends' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
+          </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          {activeTab === 'stats' ? (
+          {activeTab === 'friends' ? (
+            <FriendsList user={user} token={token} playSound={playSound} />
+          ) : activeTab === 'stats' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <StatCard label="Games Played" value={user.stats.gamesPlayed} icon={<Shield className="w-4 h-4" />} />
               <StatCard label="Win Rate" value={`${winRate}%`} icon={<Trophy className="w-4 h-4" />} />
               <StatCard label="Total Wins" value={user.stats.wins} icon={<Check className="w-4 h-4" />} />
-              <StatCard label="Liberal Games" value={user.stats.liberalGames} icon={<Star className="w-4 h-4" />} />
-              <StatCard label="Fascist Games" value={user.stats.fascistGames} icon={<Flame className="w-4 h-4" />} />
-              <StatCard label="Hitler Games" value={user.stats.hitlerGames} icon={<Shield className="w-4 h-4" />} />
+              <StatCard label="Civil Games" value={user.stats.civilGames} icon={<Star className="w-4 h-4" />} />
+              <StatCard label="State Games" value={user.stats.stateGames} icon={<Flame className="w-4 h-4" />} />
+              <StatCard label="Overseer Games" value={user.stats.overseerGames} icon={<Shield className="w-4 h-4" />} />
               <StatCard label="Kills" value={user.stats.kills} icon={<Zap className="w-4 h-4 text-yellow-500" />} />
               <StatCard label="Deaths" value={user.stats.deaths} icon={<Heart className="w-4 h-4 text-red-500" />} />
             </div>
@@ -366,17 +382,17 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                                         {user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-5 h-5 text-[#444]" />}
                                       </>
                                     ) : item.type === 'policy' ? (
-                                      <div className={cn("w-full h-full flex flex-col items-center justify-center gap-0.5", getPolicyStyles(item.id, 'Liberal'))}>
+                                      <div className={cn("w-full h-full flex flex-col items-center justify-center gap-0.5", getPolicyStyles(item.id, 'Civil'))}>
                                         <Scroll className="w-4 h-4" />
                                       </div>
                                     ) : item.type === 'vote' ? (
-                                      <div className={cn("relative w-full h-full flex flex-col items-center justify-center gap-0.5 overflow-hidden", getVoteStyles(item.id, 'Ja'))}>
+                                      <div className={cn("relative w-full h-full flex flex-col items-center justify-center gap-0.5 overflow-hidden", getVoteStyles(item.id, 'Aye'))}>
                                         {item.id === 'vote-pass-0' && (
                                           <div className="absolute inset-0 overflow-hidden pointer-events-none rounded-lg">
                                             <div className="absolute inset-0 animate-purple-rain bg-purple-500/50" />
                                           </div>
                                         )}
-                                        <span className="text-xs font-thematic uppercase">Ja!</span>
+                                        <span className="text-xs font-thematic uppercase">AYE!</span>
                                       </div>
                                     ) : item.type === 'background' ? (
                                       <div className="w-full h-full bg-[#141414] flex items-center justify-center">
@@ -488,13 +504,13 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                       ) : shopCategory === 'frame' ? (
                         user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-[#444]" />
                       ) : shopCategory === 'policy' ? (
-                        <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(undefined, 'Liberal'))}>
+                        <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(undefined, 'Civil'))}>
                           <Scroll className="w-8 h-8" />
-                          <span className="text-[8px] font-mono uppercase">Liberal</span>
+                          <span className="text-[8px] font-mono uppercase">Civil</span>
                         </div>
                       ) : shopCategory === 'vote' ? (
-                        <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(undefined, 'Ja'))}>
-                          <span className="text-lg font-thematic uppercase">Ja!</span>
+                        <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(undefined, 'Aye'))}>
+                          <span className="text-lg font-thematic uppercase">AYE!</span>
                           <span className="text-[8px] font-mono uppercase">YES</span>
                         </div>
                       ) : shopCategory === 'background' ? (
@@ -563,13 +579,13 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                               {playingItemId === item.id ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white" />}
                             </button>
                           ) : item.type === 'policy' ? (
-                            <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(item.id, 'Liberal'))}>
+                            <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(item.id, 'Civil'))}>
                               <Scroll className="w-8 h-8" />
-                              <span className="text-[8px] font-mono uppercase">Liberal</span>
+                              <span className="text-[8px] font-mono uppercase">Civil</span>
                             </div>
                           ) : item.type === 'vote' ? (
-                            <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(item.id, 'Ja'))}>
-                              <span className="text-lg font-thematic uppercase">Ja!</span>
+                            <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getVoteStyles(item.id, 'Aye'))}>
+                              <span className="text-lg font-thematic uppercase">AYE!</span>
                               <span className="text-[8px] font-mono uppercase">YES</span>
                             </div>
                           ) : item.type === 'background' ? (
@@ -624,7 +640,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                           className="w-full py-2 bg-red-900 text-white rounded-xl text-[10px] font-mono uppercase tracking-widest hover:bg-red-800 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
                         >
                           <Coins className="w-3 h-3" />
-                          {item.price} IP
+                          {item.price} PTS
                         </button>
                       )}
                     </div>

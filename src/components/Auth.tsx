@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Lock, User as UserIcon, Loader2, Chrome, MessageSquare } from 'lucide-react';
 import { User } from '../types';
 import { cn } from '../lib/utils';
+import { discordSdk } from '../lib/discord';
 
 interface AuthProps {
   onAuthSuccess: (user: User, token: string) => void;
@@ -39,6 +40,60 @@ export const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
     return () => window.removeEventListener('message', handleMessage);
   }, [onAuthSuccess]);
 
+  const handleDiscordLogin = async () => {
+    setIsLoading(true);
+    setError('');
+    try {
+      console.log("Discord SDK instanceId:", discordSdk?.instanceId);
+      // Check if we are running in Discord
+      if (discordSdk?.instanceId) {
+        console.log("Attempting Discord Activity authorization...");
+        // Discord Activity authentication
+        const { code } = await discordSdk.commands.authorize({
+          client_id: process.env.DISCORD_CLIENT_ID || "",
+          response_type: "code",
+          state: "",
+          prompt: "none",
+          scope: ["identify", "guilds"],
+        });
+        console.log("Discord Activity authorization code received");
+
+        // Send the code to the server to exchange for tokens
+        const response = await fetch('/api/auth/discord/callback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+        
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.error || 'Failed to authenticate with Discord Activity');
+        }
+        const data = await response.json();
+        onAuthSuccess(data.user, data.token);
+      } else {
+        console.log("Not in Discord Activity, using standard OAuth flow");
+        // Standard OAuth flow
+        const origin = window.location.origin;
+        const response = await fetch(`/api/auth/discord/url?origin=${encodeURIComponent(origin)}`);
+        if (!response.ok) throw new Error('Failed to get auth URL');
+        const { url } = await response.json();
+        
+        const isIframe = window.self !== window.top;
+        if (isIframe) {
+          window.open(url, 'oauth_popup', 'width=600,height=700');
+        } else {
+          window.location.href = url;
+        }
+      }
+    } catch (err: any) {
+      console.error("Discord login error:", err);
+      setError(err.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleSocialLogin = async (provider: 'google' | 'discord') => {
     // Request fullscreen on user click to avoid permission error later
     try {
@@ -47,11 +102,22 @@ export const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
       }
     } catch (e) {}
 
+    if (provider === 'discord') {
+      await handleDiscordLogin();
+      return;
+    }
+
     try {
       const origin = window.location.origin;
+      console.log(`Attempting ${provider} login from ${origin}`);
       const response = await fetch(`/api/auth/${provider}/url?origin=${encodeURIComponent(origin)}`);
-      if (!response.ok) throw new Error('Failed to get auth URL');
+      if (!response.ok) {
+        const data = await response.json();
+        console.error(`${provider} auth URL error:`, data);
+        throw new Error(data.error || `Failed to get ${provider} auth URL`);
+      }
       const { url } = await response.json();
+      console.log(`${provider} auth URL received:`, url);
       
       const isIframe = window.self !== window.top;
       if (isIframe) {
@@ -60,6 +126,7 @@ export const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
         window.location.href = url;
       }
     } catch (err: any) {
+      console.error(`${provider} login error:`, err);
       setError(err.message);
     }
   };
@@ -102,7 +169,7 @@ export const Auth: React.FC<AuthProps> = ({ onAuthSuccess }) => {
           <div className="w-16 h-16 bg-[#141414] rounded-2xl flex items-center justify-center border border-white/40 mb-4 overflow-hidden">
             <img src="https://storage.googleapis.com/secretchancellor/SC.png" alt="Secret Chancellor Logo" className="w-full h-full object-contain p-2" referrerPolicy="no-referrer" />
           </div>
-          <h1 className="text-3xl font-thematic text-white tracking-wide uppercase">Secret Chancellor</h1>
+          <h1 className="text-3xl font-thematic text-white tracking-wide uppercase">The Assembly</h1>
           <p className="text-[#666] text-sm mt-1">
             {isLogin ? 'Welcome back, Delegate' : 'Register for the Assembly'}
           </p>

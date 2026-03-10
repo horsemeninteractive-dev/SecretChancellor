@@ -10,7 +10,7 @@ export function shuffle<T>(array: T[]): T[] {
 
 export function createDeck(): Policy[] {
   const deck: Policy[] = [];
-  for (let i = 0; i < 6; i++) deck.push("Liberal");
-  for (let i = 0; i < 11; i++) deck.push("Fascist");
+  for (let i = 0; i < 6; i++) deck.push("Civil");
+  for (let i = 0; i < 11; i++) deck.push("State");
   return shuffle(deck);
 }

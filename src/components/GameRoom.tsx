@@ -1,0 +1,498 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { socket } from '../socket';
+import { GameState, Player, Role, Policy, User } from '../types';
+import { getBackgroundTexture } from '../lib/cosmetics';
+import { cn } from '../lib/utils';
+
+import { GameHeader } from './game/GameHeader';
+import { PolicyTracks } from './game/PolicyTracks';
+import { PlayerGrid } from './game/PlayerGrid';
+import { ActionBar } from './game/ActionBar';
+import { PauseOverlay } from './game/PauseOverlay';
+import { PolicyAnimation } from './game/PolicyAnimation';
+
+import { AssemblyLog } from './game/panels/AssemblyLog';
+import { RoundHistory } from './game/panels/RoundHistory';
+import { ChatPanel } from './game/panels/ChatPanel';
+
+import { GameOverModal } from './game/modals/GameOverModal';
+import { InvestigationModal } from './game/modals/InvestigationModal';
+import { PolicyPeekModal } from './game/modals/PolicyPeekModal';
+import { DossierModal } from './game/modals/DossierModal';
+import { DeclarationModal } from './game/modals/DeclarationModal';
+
+const CLIENT_VERSION = 'v0.8.6';
+
+interface GameRoomProps {
+  gameState: GameState;
+  privateInfo: { role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null;
+  user: User | null;
+  token: string | null;
+  onLeaveRoom: () => void;
+  onPlayAgain: () => void;
+  onOpenProfile: () => void;
+  setUser: (u: User) => void;
+  setGameState: (gs: GameState | null) => void;
+  setPrivateInfo: (info: { role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null) => void;
+  updateAvailable: boolean;
+  playSound: (soundKey: string) => void;
+  soundVolume: number;
+}
+
+export const GameRoom = ({
+  gameState, privateInfo, user, token,
+  onLeaveRoom, onPlayAgain, onOpenProfile,
+  setUser, setGameState, setPrivateInfo,
+  updateAvailable,
+  playSound, soundVolume
+}: GameRoomProps) => {
+  const me = gameState.players.find(p => p.id === socket.id);
+
+  // ── UI panels ────────────────────────────────────────────────────────────
+  const [isLogOpen, setIsLogOpen] = useState(false);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [isDossierOpen, setIsDossierOpen] = useState(false);
+  const [chatText, setChatText] = useState('');
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [lastSeenMessageCount, setLastSeenMessageCount] = useState(0);
+  const chatInputRef = useRef<HTMLInputElement>(null);
+  const chatGhostRef = useRef<HTMLDivElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const hasNewMessages = !isChatOpen && gameState.messages
+    .slice(lastSeenMessageCount)
+    .some(m => m.type !== 'round_separator' && m.type !== 'declaration' && m.type !== 'failed_election');
+
+  useEffect(() => {
+    if (isChatOpen) setLastSeenMessageCount(gameState.messages.length);
+  }, [isChatOpen, gameState.messages.length]);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [gameState.messages, isChatOpen]);
+
+  const handleChatScroll = () => {
+    if (chatInputRef.current && chatGhostRef.current) {
+      chatGhostRef.current.scrollLeft = chatInputRef.current.scrollLeft;
+    }
+  };
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (chatText.trim()) {
+      socket.emit('sendMessage', chatText.trim());
+      setChatText('');
+      setShowEmojiPicker(false);
+    }
+  };
+
+  const onEmojiClick = (emojiData: any) => {
+    const emoji = emojiData.emoji;
+    const input = chatInputRef.current;
+    if (input) {
+      const start = input.selectionStart || 0;
+      const end = input.selectionEnd || 0;
+      const before = chatText.substring(0, start);
+      const after = chatText.substring(end);
+      const newText = before + emoji + after;
+      setChatText(newText);
+      setTimeout(() => {
+        input.focus();
+        input.setSelectionRange(start + emoji.length, start + emoji.length);
+        handleChatScroll();
+      }, 0);
+    }
+  };
+
+  // ── Modals ───────────────────────────────────────────────────────────────
+  const [peekedPolicies, setPeekedPolicies] = useState<Policy[] | null>(null);
+  const [investigationResult, setInvestigationResult] = useState<{ targetName: string; role: Role } | null>(null);
+
+  useEffect(() => {
+    socket.on('policyPeekResult', (policies: Policy[]) => setPeekedPolicies(policies));
+    socket.on('investigationResult', (result) => setInvestigationResult(result));
+    return () => {
+      socket.off('policyPeekResult');
+      socket.off('investigationResult');
+    };
+  }, []);
+
+  // ── Declaration state & logic ────────────────────────────────────────────
+  const [showDeclarationUI, setShowDeclarationUI] = useState(false);
+  const [declarationType, setDeclarationType] = useState<'President' | 'Chancellor' | null>(null);
+  const [declCiv, setDeclCiv] = useState(0);
+  const [declSta, setDeclSta] = useState(0);
+  const [declDrawCiv, setDeclDrawCiv] = useState(0);
+  const [declDrawSta, setDeclDrawSta] = useState(3);
+  const [showPolicyAnim, setShowPolicyAnim] = useState(false);
+  const [lastSeenPolicyTime, setLastSeenPolicyTime] = useState(0);
+
+  const showPolicyAnimRef = useRef(false);
+  const pendingDeclarationRef = useRef<'President' | 'Chancellor' | null>(null);
+  const chancellorSinceRef = useRef<number>(0);
+  const wasChancellorRef = useRef(false);
+  const prevLastEnactedTimestamp = useRef<number>(0);
+
+  useEffect(() => { showPolicyAnimRef.current = showPolicyAnim; }, [showPolicyAnim]);
+
+  useEffect(() => {
+    if (gameState.lastEnactedPolicy && gameState.lastEnactedPolicy.timestamp > lastSeenPolicyTime) {
+      setLastSeenPolicyTime(gameState.lastEnactedPolicy.timestamp);
+      setShowPolicyAnim(true);
+    }
+  }, [gameState.lastEnactedPolicy, lastSeenPolicyTime]);
+
+  useEffect(() => {
+    if (showPolicyAnim) {
+      const timer = setTimeout(() => setShowPolicyAnim(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showPolicyAnim]);
+
+  useEffect(() => {
+    if (!showPolicyAnim && pendingDeclarationRef.current) {
+      const type = pendingDeclarationRef.current;
+      pendingDeclarationRef.current = null;
+      setDeclarationType(type);
+      setDeclCiv(0); setDeclSta(0); setDeclDrawCiv(0); setDeclDrawSta(3);
+      setShowDeclarationUI(true);
+    }
+  }, [showPolicyAnim]);
+
+  useEffect(() => {
+    if (!me) return;
+    const alreadyDeclared = gameState.declarations.some(d => d.playerId === socket.id);
+    if (alreadyDeclared || gameState.phase === 'GameOver') {
+      pendingDeclarationRef.current = null;
+      setShowDeclarationUI(false);
+      return;
+    }
+    if (me.isChancellor && !wasChancellorRef.current) chancellorSinceRef.current = Date.now();
+    wasChancellorRef.current = !!me.isChancellor;
+
+    const policyTimestamp = gameState.lastEnactedPolicy?.timestamp ?? 0;
+    const policyIsNew = policyTimestamp > prevLastEnactedTimestamp.current;
+    if (policyTimestamp > prevLastEnactedTimestamp.current) prevLastEnactedTimestamp.current = policyTimestamp;
+
+    let needed: 'President' | 'Chancellor' | null = null;
+    if (policyIsNew && me.isPresident) needed = 'President';
+    const presidentDeclared = gameState.declarations.some(d => d.type === 'President');
+    if (presidentDeclared && me.isChancellor) {
+      const policyEnactedThisTerm = (gameState.lastEnactedPolicy?.timestamp ?? 0) > chancellorSinceRef.current;
+      if (policyEnactedThisTerm) needed = 'Chancellor';
+    }
+    if (needed) {
+      if (!showPolicyAnimRef.current) {
+        pendingDeclarationRef.current = null;
+        setDeclarationType(needed);
+        setDeclCiv(0); setDeclSta(0); setDeclDrawCiv(0); setDeclDrawSta(3);
+        setShowDeclarationUI(true);
+      } else {
+        pendingDeclarationRef.current = needed;
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState.lastEnactedPolicy?.timestamp, gameState.declarations?.length, gameState.phase, showPolicyAnim]);
+
+  const handleSubmitDeclaration = () => {
+    socket.emit('declarePolicies', {
+      civ: declCiv,
+      sta: declSta,
+      ...(declarationType === 'President' ? { drewCiv: declDrawCiv, drewSta: declDrawSta } : {}),
+      type: declarationType,
+    });
+    setShowDeclarationUI(false);
+  };
+
+  // ── Timer tick ───────────────────────────────────────────────────────────
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // ── Game sound effects on state change ──────────────────────────────────
+  const prevPhase = useRef<string | undefined>(undefined);
+  const prevVotes = useRef(0);
+  const prevCivilDirectives = useRef(0);
+  const prevStateDirectives = useRef(0);
+  const prevAliveCount = useRef(0);
+
+  const speak = (text: string) => {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 0.9; u.pitch = 0.8;
+    window.speechSynthesis.speak(u);
+  };
+
+  useEffect(() => {
+    const currentVotes = gameState.players.filter(p => p.vote).length;
+    if (currentVotes > prevVotes.current && me && !me.vote) playSound('click');
+    prevVotes.current = currentVotes;
+
+    const currentAliveCount = gameState.players.filter(p => p.isAlive).length;
+    if (prevAliveCount.current > 0 && currentAliveCount < prevAliveCount.current) playSound('death');
+    prevAliveCount.current = currentAliveCount;
+
+    if (prevPhase.current === 'Voting' && gameState.phase !== 'Voting') {
+      if (gameState.phase === 'Legislative_President') playSound('election_passed');
+      else if (gameState.phase === 'Election') playSound('election_failed');
+    }
+
+    if (gameState.civilDirectives > prevCivilDirectives.current) speak('Charter secured.');
+    if (gameState.stateDirectives > prevStateDirectives.current) speak('The State advances.');
+    prevCivilDirectives.current = gameState.civilDirectives;
+    prevStateDirectives.current = gameState.stateDirectives;
+
+    if (prevPhase.current !== 'GameOver' && gameState.phase === 'GameOver') {
+      const myTeam = me?.role === 'Civil' ? 'Civil' : 'State';
+      playSound(gameState.winner === myTeam ? 'victory' : 'defeat');
+    }
+
+    prevPhase.current = gameState.phase;
+  }, [gameState]);
+
+  // ── Voice chat ───────────────────────────────────────────────────────────
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [speakingPlayers, setSpeakingPlayers] = useState<Record<string, boolean>>({});
+  const peersRef = useRef<Record<string, RTCPeerConnection>>({});
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const speakingTimers = useRef<Record<string, NodeJS.Timeout>>({});
+
+  const setupSpeakingDetection = async (stream: MediaStream, playerId: string) => {
+    if (!playerId) return;
+    try {
+      if (!audioContextRef.current) {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+      const context = audioContextRef.current;
+      if (context.state === 'suspended') await context.resume();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 512;
+      analyser.smoothingTimeConstant = 0.8;
+      source.connect(analyser);
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      let isRunning = true;
+      const check = () => {
+        if (!isRunning) return;
+        const isLocal = playerId === socket.id;
+        const peerExists = !!peersRef.current[playerId];
+        if (!isLocal && !peerExists) { isRunning = false; source.disconnect(); analyser.disconnect(); return; }
+        analyser.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+        if (sum / bufferLength > 10) {
+          setSpeakingPlayers(prev => ({ ...prev, [playerId]: true }));
+          if (speakingTimers.current[playerId]) clearTimeout(speakingTimers.current[playerId]);
+          speakingTimers.current[playerId] = setTimeout(() => {
+            setSpeakingPlayers(prev => ({ ...prev, [playerId]: false }));
+          }, 400);
+        }
+        requestAnimationFrame(check);
+      };
+      check();
+    } catch (err) {
+      console.error('Voice detection error:', err);
+    }
+  };
+
+  const createPeer = (peerId: string, initiator: boolean) => {
+    if (peersRef.current[peerId]) return peersRef.current[peerId];
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    peersRef.current[peerId] = pc;
+    if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+    pc.onicecandidate = (event) => {
+      if (event.candidate) socket.emit('signal', { to: peerId, from: socket.id!, signal: { candidate: event.candidate } });
+    };
+    pc.ontrack = (event) => {
+      const remoteStream = event.streams[0];
+      const audio = new Audio();
+      audio.srcObject = remoteStream;
+      audio.volume = soundVolume / 100;
+      audio.play().catch(() => {});
+      setupSpeakingDetection(remoteStream, peerId);
+    };
+    pc.onnegotiationneeded = async () => {
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('signal', { to: peerId, from: socket.id!, signal: { sdp: offer } });
+      } catch (err) { console.error('Negotiation error', err); }
+    };
+    return pc;
+  };
+
+  useEffect(() => {
+    socket.on('signal', async ({ from, signal }) => {
+      let pc = peersRef.current[from];
+      if (!pc) pc = createPeer(from, false);
+      if (signal.sdp) {
+        await pc.setRemoteDescription(new RTCSessionDescription(signal.sdp));
+        if (signal.sdp.type === 'offer') {
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          socket.emit('signal', { to: from, from: socket.id!, signal: { sdp: answer } });
+        }
+      } else if (signal.candidate) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(signal.candidate)); }
+        catch (e) { console.error('ICE candidate error', e); }
+      }
+    });
+    socket.on('peerJoined', (peerId) => createPeer(peerId, true));
+    return () => { socket.off('signal'); socket.off('peerJoined'); };
+  }, [localStream]);
+
+  useEffect(() => {
+    if (isVoiceActive && socket.id && localStream) setupSpeakingDetection(localStream, socket.id);
+  }, [isVoiceActive, localStream]);
+
+  useEffect(() => {
+    if (isVoiceActive) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(async stream => {
+          setLocalStream(stream);
+          Object.keys(peersRef.current).forEach(peerId => {
+            const pc = peersRef.current[peerId];
+            stream.getTracks().forEach(track => pc.addTrack(track, stream));
+          });
+        })
+        .catch(err => { console.error('Mic error:', err); setIsVoiceActive(false); });
+    } else {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        setLocalStream(null);
+        Object.keys(peersRef.current).forEach(peerId => {
+          const pc = peersRef.current[peerId];
+          pc.getSenders().forEach(sender => pc.removeTrack(sender));
+        });
+      }
+    }
+    return () => { localStream?.getTracks().forEach(track => track.stop()); };
+  }, [isVoiceActive]);
+
+  // ── Render ───────────────────────────────────────────────────────────────
+  return (
+    <div
+      className={cn(
+        'fixed inset-0 bg-texture text-[#e4e3e0] font-sans flex flex-col overflow-hidden transition-all duration-1000',
+        gameState.stateDirectives >= 3 && gameState.phase !== 'GameOver' && 'danger-zone-pulse'
+      )}
+      style={{
+        backgroundImage: `radial-gradient(circle at 50% 50%, rgba(20, 20, 20, 0.8) 0%, rgba(10, 10, 10, 1) 100%), url("${getBackgroundTexture(user?.activeBackground)}")`
+      }}
+    >
+      <GameHeader
+        gameState={gameState}
+        me={me}
+        socketId={socket.id}
+        user={user}
+        privateInfo={privateInfo}
+        isVoiceActive={isVoiceActive}
+        hasNewMessages={hasNewMessages}
+        tick={0}
+        onToggleVoice={() => { if (me?.isAlive || gameState.phase === 'GameOver') setIsVoiceActive(v => !v); }}
+        onOpenChat={() => { playSound('click'); setIsChatOpen(true); }}
+        onOpenHistory={() => { playSound('click'); setIsHistoryOpen(true); }}
+        onOpenDossier={() => { playSound('click'); setIsDossierOpen(true); }}
+        onOpenProfile={onOpenProfile}
+        onLeaveRoom={onLeaveRoom}
+        playSound={playSound}
+      />
+
+      <main className="flex-1 flex flex-col min-h-0 relative">
+        <PolicyTracks gameState={gameState} />
+
+        <PlayerGrid
+          gameState={gameState}
+          me={me}
+          speakingPlayers={speakingPlayers}
+          playSound={playSound}
+          token={token || ''}
+        />
+
+        <ActionBar
+          gameState={gameState}
+          me={me}
+          user={user}
+          onOpenLog={() => { playSound('click'); setIsLogOpen(true); }}
+          onPlayAgain={onPlayAgain}
+          onLeaveRoom={onLeaveRoom}
+          playSound={playSound}
+        />
+
+        {/* Overlays within main */}
+        <PauseOverlay gameState={gameState} />
+
+        <GameOverModal
+          gameState={gameState}
+          onPlayAgain={onPlayAgain}
+          onLeave={onLeaveRoom}
+          onOpenLog={() => setIsLogOpen(true)}
+        />
+      </main>
+
+      {/* Policy flip animation */}
+      <PolicyAnimation gameState={gameState} show={showPolicyAnim} />
+
+      {/* Panels */}
+      <AssemblyLog
+        log={gameState.log}
+        isOpen={isLogOpen}
+        onClose={() => setIsLogOpen(false)}
+      />
+      <RoundHistory
+        gameState={gameState}
+        isOpen={isHistoryOpen}
+        onClose={() => setIsHistoryOpen(false)}
+      />
+      <ChatPanel
+        gameState={gameState}
+        me={me}
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        chatText={chatText}
+        setChatText={setChatText}
+        onSend={handleSendMessage}
+        showEmojiPicker={showEmojiPicker}
+        setShowEmojiPicker={setShowEmojiPicker}
+        onEmojiClick={onEmojiClick}
+        chatEndRef={chatEndRef}
+        chatInputRef={chatInputRef}
+        chatGhostRef={chatGhostRef}
+        onChatScroll={handleChatScroll}
+        playSound={playSound}
+      />
+
+      {/* Modals */}
+      <InvestigationModal
+        result={investigationResult}
+        onClose={() => setInvestigationResult(null)}
+      />
+      <PolicyPeekModal
+        policies={peekedPolicies}
+        onClose={() => setPeekedPolicies(null)}
+      />
+      <DossierModal
+        isOpen={isDossierOpen}
+        onClose={() => setIsDossierOpen(false)}
+        privateInfo={privateInfo}
+      />
+      <DeclarationModal
+        show={showDeclarationUI}
+        declarationType={declarationType}
+        declCiv={declCiv}
+        declSta={declSta}
+        declDrawCiv={declDrawCiv}
+        declDrawSta={declDrawSta}
+        setDeclCiv={setDeclCiv}
+        setDeclSta={setDeclSta}
+        setDeclDrawCiv={setDeclDrawCiv}
+        setDeclDrawSta={setDeclDrawSta}
+        onSubmit={handleSubmitDeclaration}
+      />
+    </div>
+  );
+};

@@ -74,14 +74,14 @@ export class GameEngine {
     // Private role info per human player
     state.players.forEach(p => {
       if (p.isAI) return;
-      const fascists = state.players
-        .filter(pl => pl.role === "Fascist" || pl.role === "Hitler")
+      const stateAgents = state.players
+        .filter(pl => pl.role === "State" || pl.role === "Overseer")
         .map(pl => ({ id: pl.id, name: pl.name, role: pl.role! }));
 
-      if (p.role === "Fascist") {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, fascists });
-      } else if (p.role === "Hitler" && state.players.length <= 6) {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, fascists });
+      if (p.role === "State") {
+        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents });
+      } else if (p.role === "Overseer" && state.players.length <= 6) {
+        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents });
       } else {
         this.io.to(p.id).emit("privateInfo", { role: p.role! });
       }
@@ -146,13 +146,13 @@ export class GameEngine {
     } else if (s.phase === "Voting") {
       s.players.forEach(p => {
         if (p.isAlive && !p.vote) {
-          p.vote = Math.random() > 0.3 ? "Ja" : "Nein";
+          p.vote = Math.random() > 0.3 ? "Aye" : "Nay";
         }
       });
-      const jaVotes   = s.players.filter(p => p.vote === "Ja").length;
-      const neinVotes = s.players.filter(p => p.vote === "Nein").length;
+      const ayeVotes   = s.players.filter(p => p.vote === "Aye").length;
+      const nayVotes = s.players.filter(p => p.vote === "Nay").length;
       s.log.push("[Timer] Voting time expired. Remaining votes were auto-cast.");
-      this.handleVoteResult(s, roomId, jaVotes, neinVotes);
+      this.handleVoteResult(s, roomId, ayeVotes, nayVotes);
 
     } else if (s.phase === "Legislative_President") {
       const president = s.players.find(p => p.isPresident);
@@ -167,7 +167,7 @@ export class GameEngine {
         s.drawnPolicies = [];
         s.phase = "Legislative_Chancellor";
         s.presidentTimedOut = true;
-        s.log.push(`[Timer] ${president.name} was too slow. A random policy was discarded.`);
+        s.log.push(`[Timer] ${president.name} was too slow. A random directive was discarded.`);
         this.broadcastState(roomId);
         this.processAITurns(roomId);
         // Note: triggerAIDeclarations is NOT called here. It will be called
@@ -184,7 +184,7 @@ export class GameEngine {
         s.discard.push(discarded);
         s.chancellorPolicies = [];
         s.chancellorTimedOut = true;
-        s.log.push(`[Timer] ${chancellor.name} was too slow. A random policy was played.`);
+        s.log.push(`[Timer] ${chancellor.name} was too slow. A random directive was enacted.`);
         this.triggerPolicyEnactment(s, roomId, played, false, chancellor.id);
       }
 
@@ -248,15 +248,15 @@ export class GameEngine {
 
     let target: Player;
 
-    if (president.role === "Liberal" && president.suspicion) {
+    if (president.role === "Civil" && president.suspicion) {
       target = leastSuspicious(president, eligible);
     } else {
-      const hitlerCandidate  = eligible.find(p => p.role === "Hitler");
-      const fascistTeammate  = eligible.find(p => p.role === "Fascist");
-      if (s.fascistPolicies >= 3 && hitlerCandidate) {
-        target = hitlerCandidate;
-      } else if (fascistTeammate && Math.random() > 0.3) {
-        target = fascistTeammate;
+      const overseerCandidate  = eligible.find(p => p.role === "Overseer");
+      const stateTeammate  = eligible.find(p => p.role === "State");
+      if (s.stateDirectives >= 3 && overseerCandidate) {
+        target = overseerCandidate;
+      } else if (stateTeammate && Math.random() > 0.3) {
+        target = stateTeammate;
       } else {
         target = eligible[Math.floor(Math.random() * eligible.length)];
       }
@@ -283,11 +283,11 @@ export class GameEngine {
       ai.vote = this.computeAIVote(ai, s, president, chancellor ?? null);
     });
 
-    const jaVotes   = s.players.filter(p => p.vote === "Ja").length;
-    const neinVotes = s.players.filter(p => p.vote === "Nein").length;
+    const ayeVotes   = s.players.filter(p => p.vote === "Aye").length;
+    const nayVotes = s.players.filter(p => p.vote === "Nay").length;
 
     if (s.players.filter(p => p.isAlive && !p.vote).length === 0) {
-      this.handleVoteResult(s, roomId, jaVotes, neinVotes);
+      this.handleVoteResult(s, roomId, ayeVotes, nayVotes);
     } else {
       this.broadcastState(roomId);
     }
@@ -298,26 +298,26 @@ export class GameEngine {
     s: GameState,
     president: Player,
     chancellor: Player | null
-  ): "Ja" | "Nein" {
-    if (ai.role === "Liberal" && ai.suspicion) {
+  ): "Aye" | "Nay" {
+    if (ai.role === "Civil" && ai.suspicion) {
       const presSusp  = getSuspicion(ai, president.id);
       const chanSusp  = chancellor ? getSuspicion(ai, chancellor.id) : 0;
       const threshold = Math.min(0.65, 0.50 + s.round * 0.015);
 
       if (presSusp > threshold || chanSusp > threshold) {
-        return s.electionTracker >= 2 ? "Ja" : "Nein";
+        return s.electionTracker >= 2 ? "Aye" : "Nay";
       }
-      if (s.fascistPolicies >= 3 && chancellor?.role === "Hitler") return "Nein";
-      if (s.electionTracker >= 2) return "Ja";
-      return Math.random() > 0.15 ? "Ja" : "Nein";
+      if (s.stateDirectives >= 3 && chancellor?.role === "Overseer") return "Nay";
+      if (s.electionTracker >= 2) return "Aye";
+      return Math.random() > 0.15 ? "Aye" : "Nay";
     }
 
-    // Fascist strategic voting
-    if (s.fascistPolicies >= 3 && chancellor?.role === "Hitler") return "Ja";
-    if (chancellor?.role !== "Liberal" || president.role !== "Liberal") {
-      return Math.random() > 0.15 ? "Ja" : "Nein";
+    // State strategic voting
+    if (s.stateDirectives >= 3 && chancellor?.role === "Overseer") return "Aye";
+    if (chancellor?.role !== "Civil" || president.role !== "Civil") {
+      return Math.random() > 0.15 ? "Aye" : "Nay";
     }
-    return Math.random() > 0.45 ? "Ja" : "Nein";
+    return Math.random() > 0.45 ? "Aye" : "Nay";
   }
 
   // ─── AI: Legislative — President discard ──────────────────────────────────
@@ -327,7 +327,7 @@ export class GameEngine {
     if (!president?.isAI) return;
 
     s.presidentSaw = [...s.drawnPolicies];
-    let idx = this.choosePolicyToDiscard(president, s.drawnPolicies, s.fascistPolicies);
+    let idx = this.choosePolicyToDiscard(president, s.drawnPolicies, s.stateDirectives);
 
     const discarded = s.drawnPolicies.splice(idx, 1)[0];
     s.discard.push(discarded);
@@ -335,20 +335,24 @@ export class GameEngine {
     s.chancellorSaw = [...s.chancellorPolicies];
     s.drawnPolicies = [];
     s.phase = "Legislative_Chancellor";
+    // CRITICAL: reset the action timer for the chancellor phase. Without this,
+    // the president-phase timer keeps running and fires during the chancellor's
+    // turn, auto-playing a second policy before the human chancellor can choose.
+    this.startActionTimer(roomId);
     this.broadcastState(roomId);
     this.processAITurns(roomId);
   }
 
-  private choosePolicyToDiscard(player: Player, hand: Policy[], fascistPolicies: number): number {
+  private choosePolicyToDiscard(player: Player, hand: Policy[], stateDirectives: number): number {
     let idx = -1;
-    if (player.personality === "Aggressive" && player.role !== "Liberal") {
-      idx = hand.findIndex(p => p === "Liberal");
-    } else if (player.personality === "Strategic" && player.role !== "Liberal") {
-      idx = fascistPolicies < 2
-        ? hand.findIndex(p => p === "Fascist")
-        : hand.findIndex(p => p === "Liberal");
-    } else if (player.personality === "Honest" || player.role === "Liberal") {
-      idx = hand.findIndex(p => p === "Fascist");
+    if (player.personality === "Aggressive" && player.role !== "Civil") {
+      idx = hand.findIndex(p => p === "Civil");
+    } else if (player.personality === "Strategic" && player.role !== "Civil") {
+      idx = stateDirectives < 2
+        ? hand.findIndex(p => p === "State")
+        : hand.findIndex(p => p === "Civil");
+    } else if (player.personality === "Honest" || player.role === "Civil") {
+      idx = hand.findIndex(p => p === "State");
     }
     return idx === -1 ? 0 : idx;
   }
@@ -359,7 +363,7 @@ export class GameEngine {
     const chancellor = s.players.find(p => p.isChancellor);
     if (!chancellor?.isAI || s.chancellorPolicies.length === 0) return;
 
-    let idx = this.choosePolicyToPlay(chancellor, s.chancellorPolicies, s.fascistPolicies);
+    let idx = this.choosePolicyToPlay(chancellor, s.chancellorPolicies, s.stateDirectives);
 
     const played    = s.chancellorPolicies.splice(idx, 1)[0];
     const discarded = s.chancellorPolicies[0];
@@ -368,16 +372,16 @@ export class GameEngine {
     this.triggerPolicyEnactment(s, roomId, played, false, chancellor.id);
   }
 
-  private choosePolicyToPlay(player: Player, hand: Policy[], fascistPolicies: number): number {
+  private choosePolicyToPlay(player: Player, hand: Policy[], stateDirectives: number): number {
     let idx = -1;
-    if (player.personality === "Aggressive" && player.role !== "Liberal") {
-      idx = hand.findIndex(p => p === "Liberal"); // Discard liberal, play fascist
-    } else if (player.personality === "Strategic" && player.role !== "Liberal") {
-      idx = fascistPolicies < 3
-        ? hand.findIndex(p => p === "Liberal")
-        : hand.findIndex(p => p === "Fascist");
-    } else if (player.personality === "Honest" || player.role === "Liberal") {
-      idx = hand.findIndex(p => p === "Liberal"); // Play liberal
+    if (player.personality === "Aggressive" && player.role !== "Civil") {
+      idx = hand.findIndex(p => p === "Civil"); // Discard Civil, play State
+    } else if (player.personality === "Strategic" && player.role !== "Civil") {
+      idx = stateDirectives < 3
+        ? hand.findIndex(p => p === "Civil")
+        : hand.findIndex(p => p === "State");
+    } else if (player.personality === "Honest" || player.role === "Civil") {
+      idx = hand.findIndex(p => p === "Civil"); // Play Civil
     }
     return idx === -1 ? 0 : idx;
   }
@@ -393,24 +397,24 @@ export class GameEngine {
 
     let target: Player;
 
-    if (president.role === "Liberal" && president.suspicion) {
+    if (president.role === "Civil" && president.suspicion) {
       target = s.currentExecutiveAction === "SpecialElection"
         ? leastSuspicious(president, eligible)
         : mostSuspicious(president, eligible);
     } else {
-      const liberals     = eligible.filter(p => p.role === "Liberal");
-      const fascistTeam  = eligible.filter(p => p.role === "Fascist" || p.role === "Hitler");
+      const civilPlayers = eligible.filter(p => p.role === "Civil");
+      const stateTeam    = eligible.filter(p => p.role === "State" || p.role === "Overseer");
       if (s.currentExecutiveAction === "SpecialElection") {
-        target = fascistTeam.length > 0
-          ? fascistTeam[Math.floor(Math.random() * fascistTeam.length)]
+        target = stateTeam.length > 0
+          ? stateTeam[Math.floor(Math.random() * stateTeam.length)]
           : eligible[Math.floor(Math.random() * eligible.length)];
       } else if (s.currentExecutiveAction === "Investigate") {
-        target = liberals.length > 0
-          ? liberals[Math.floor(Math.random() * liberals.length)]
+        target = civilPlayers.length > 0
+          ? civilPlayers[Math.floor(Math.random() * civilPlayers.length)]
           : eligible[Math.floor(Math.random() * eligible.length)];
       } else {
-        target = liberals.length > 0
-          ? liberals[Math.floor(Math.random() * liberals.length)]
+        target = civilPlayers.length > 0
+          ? civilPlayers[Math.floor(Math.random() * civilPlayers.length)]
           : eligible[Math.floor(Math.random() * eligible.length)];
       }
     }
@@ -424,20 +428,20 @@ export class GameEngine {
     const president = s.players.find(p => p.isPresident);
     if (!president?.isAI) return;
 
-    const fascistInHand = s.chancellorPolicies.filter(p => p === "Fascist").length;
-    const liberalInHand = s.chancellorPolicies.filter(p => p === "Liberal").length;
+    const stateInHand = s.chancellorPolicies.filter(p => p === "State").length;
+    const civilInHand = s.chancellorPolicies.filter(p => p === "Civil").length;
     let agree: boolean;
 
-    if (president.role === "Liberal") {
+    if (president.role === "Civil") {
       if (s.electionTracker >= 2) {
         agree = false;
-      } else if (fascistInHand === 2) {
+      } else if (stateInHand === 2) {
         agree = true;
       } else {
         agree = Math.random() > 0.75;
       }
     } else {
-      if (liberalInHand >= 1 && s.fascistPolicies < 4) {
+      if (civilInHand >= 1 && s.stateDirectives < 4) {
         agree = false;
       } else if (s.electionTracker === 0 && Math.random() > 0.6) {
         agree = true;
@@ -467,9 +471,9 @@ export class GameEngine {
     const chancellor = state.players.find(p => p.isChancellor);
     if (!president || !chancellor) return;
 
-    const presIsFascist = president.role === "Fascist" || president.role === "Hitler";
-    const chanIsFascist = chancellor.role === "Fascist" || chancellor.role === "Hitler";
-    const bothFascist   = presIsFascist && chanIsFascist;
+    const presIsState = president.role === "State" || president.role === "Overseer";
+    const chanIsState = chancellor.role === "State" || chancellor.role === "Overseer";
+    const bothState   = presIsState && chanIsState;
     const enacted       = state.lastEnactedPolicy?.type;
 
     const declareForAI = (player: Player, type: "President" | "Chancellor") => {
@@ -478,58 +482,67 @@ export class GameEngine {
       );
       if (alreadyDeclared) return;
 
-      const saw  = type === "President" ? (state.presidentSaw ?? []) : (state.chancellorSaw ?? []);
-      let libs   = saw.filter(p => p === "Liberal").length;
-      let fas    = saw.filter(p => p === "Fascist").length;
+      // For president: saw = chancellorSaw (what they passed), drew = presidentSaw
+      // For chancellor: saw = chancellorSaw (what they received)
+      const saw  = type === "President" ? (state.chancellorSaw ?? []) : (state.chancellorSaw ?? []);
+      const drew = state.presidentSaw ?? [];
+      let civ   = saw.filter(p => p === "Civil").length;
+      let sta    = saw.filter(p => p === "State").length;
+      const drewCiv = drew.filter(p => p === "Civil").length;
+      const drewSta = drew.filter(p => p === "State").length;
 
-      if (bothFascist && enacted === "Fascist") {
-        // ── Coordinated fascist lying ─────────────────────────────────────
+      if (bothState && enacted === "State") {
+        // ── Coordinated State lying ─────────────────────────────────────
         if (type === "President") {
-          const actualFas = fas;
-          if (actualFas === 3) {
-            if (Math.random() > 0.45) { libs = 1; fas = 2; }
-          } else if (actualFas === 2) {
-            libs = 2; fas = 1;
+          const actualSta = sta;
+          if (actualSta === 3) {
+            if (Math.random() > 0.45) { civ = 1; sta = 2; }
+          } else if (actualSta === 2) {
+            civ = 2; sta = 1;
           }
-          const chanFas = Math.max(1, fas - 1);
-          state.pendingChancellorClaim = { libs: 2 - chanFas, fas: chanFas };
+          const chanSta = Math.max(1, sta - 1);
+          state.pendingChancellorClaim = { civ: 2 - chanSta, sta: chanSta };
         } else {
           if (state.pendingChancellorClaim) {
-            libs = state.pendingChancellorClaim.libs;
-            fas  = state.pendingChancellorClaim.fas;
+            civ = state.pendingChancellorClaim.civ;
+            sta  = state.pendingChancellorClaim.sta;
             state.pendingChancellorClaim = undefined;
           }
         }
       } else {
         // ── Independent lying (non-coordinated) ──────────────────────────
         let shouldLie = false;
-        if (player.role !== "Liberal") {
+        if (player.role !== "Civil") {
           if      (player.personality === "Deceptive")  shouldLie = true;
           else if (player.personality === "Aggressive")  shouldLie = Math.random() > 0.2;
-          else if (player.personality === "Strategic")   shouldLie = state.fascistPolicies >= 2;
+          else if (player.personality === "Strategic")   shouldLie = state.stateDirectives >= 2;
           else if (player.personality === "Chaotic")     shouldLie = Math.random() > 0.5;
         }
-        if (shouldLie && libs > 0) { libs--; fas++; }
+        if (shouldLie && civ > 0) { civ--; sta++; }
       }
 
       state.declarations.push({
         playerId: player.id,
         playerName: player.name,
-        libs, fas, type,
+        civ, sta,
+        ...(type === "President" ? { drewCiv, drewSta } : {}),
+        type,
         timestamp: Date.now(),
       });
+      const passedOrReceived = type === "President" ? "passed" : "received";
+      const drewStr = type === "President" ? ` (drew ${drewCiv}C/${drewSta}S)` : "";
       state.log.push(
-        `${player.name} (${type}) declared seeing ${libs} Liberal and ${fas} Fascist policies.`
+        `${player.name} (${type}) declared ${passedOrReceived} ${civ} Civil and ${sta} State directives.${drewStr}`
       );
       if (state.messages.length > 50) state.messages.shift();
 
       // AI chat reactions after declaration
-      if (player.isAI && enacted === "Fascist" && Math.random() > 0.4) {
+      if (player.isAI && enacted === "State" && Math.random() > 0.4) {
         setTimeout(() => {
           if (state.isPaused) return;
           const lines = type === "Chancellor"
-            ? (player.role === "Liberal" ? CHAT.chanLibFascistEnacted : CHAT.chanFasFascistEnacted)
-            : (player.role === "Liberal" ? CHAT.presLibFascistEnacted : CHAT.presFasFascistEnacted);
+            ? (player.role === "Civil" ? CHAT.chanCivilStateEnacted : CHAT.chanStateStateEnacted)
+            : (player.role === "Civil" ? CHAT.presCivilStateEnacted : CHAT.presStateStateEnacted);
           this.postAIChat(state, player, lines);
           this.broadcastState(roomId);
         }, 1200);
@@ -577,13 +590,13 @@ export class GameEngine {
     setTimeout(async () => {
       if (state.isPaused) return;
 
-      if (played === "Liberal") {
-        state.liberalPolicies++;
-        state.log.push("A Liberal policy was enacted.");
+      if (played === "Civil") {
+        state.civilDirectives++;
+        state.log.push("A Civil directive was enacted.");
       } else {
-        state.fascistPolicies++;
-        state.log.push("A Fascist policy was enacted.");
-        if (state.fascistPolicies >= 5) state.vetoUnlocked = true;
+        state.stateDirectives++;
+        state.log.push("A State directive was enacted.");
+        if (state.stateDirectives >= 5) state.vetoUnlocked = true;
       }
 
       updateSuspicionFromPolicy(state, played);
@@ -620,8 +633,8 @@ export class GameEngine {
         const pl = state.players.find(p => p.id === pid);
         return { playerId: pid, playerName: pl?.name ?? pid, vote: v };
       }),
-      presDeclaration: presDecl ? { libs: presDecl.libs, fas: presDecl.fas } : undefined,
-      chanDeclaration: chanDecl ? { libs: chanDecl.libs, fas: chanDecl.fas } : undefined,
+      presDeclaration: presDecl ? { civ: presDecl.civ, sta: presDecl.sta, drewCiv: presDecl.drewCiv ?? 0, drewSta: presDecl.drewSta ?? 0 } : undefined,
+      chanDeclaration: chanDecl ? { civ: chanDecl.civ, sta: chanDecl.sta } : undefined,
       executiveAction: action !== "None" ? action : undefined,
     });
   }
@@ -630,7 +643,7 @@ export class GameEngine {
   // Voting
   // ═══════════════════════════════════════════════════════════════════════════
 
-  handleVoteResult(state: GameState, roomId: string, jaVotes: number, neinVotes: number): void {
+  handleVoteResult(state: GameState, roomId: string, ayeVotes: number, nayVotes: number): void {
     state.phase = "Voting_Reveal" as any;
 
     if (!state.previousVotes) state.previousVotes = {};
@@ -639,7 +652,7 @@ export class GameEngine {
       p.vote = undefined;
     });
 
-    const voteInfo = `(${jaVotes} Ja, ${neinVotes} Nein)`;
+    const voteInfo = `(${ayeVotes} Aye, ${nayVotes} Nay)`;
     state.actionTimerEnd = Date.now() + 4000;
     this.broadcastState(roomId);
 
@@ -648,7 +661,7 @@ export class GameEngine {
       if (!s || s.phase !== "Voting_Reveal") return;
       s.actionTimerEnd = undefined;
 
-      if (jaVotes > neinVotes) {
+      if (ayeVotes > nayVotes) {
         this.handleElectionPassed(s, roomId, voteInfo);
       } else {
         await this.handleElectionFailed(s, roomId, voteInfo);
@@ -665,13 +678,13 @@ export class GameEngine {
     const chancellor = s.players.find(p => p.isChancellorCandidate)!;
     const president  = s.players.find(p => p.isPresidentialCandidate)!;
 
-    if (s.fascistPolicies >= 3 && chancellor.role === "Hitler") {
+    if (s.stateDirectives >= 3 && chancellor.role === "Overseer") {
       s.phase = "GameOver";
       startActionTimerRef(this, roomId);
-      s.winner    = "Fascists";
-      s.winReason = "Hitler was elected Chancellor!";
-      s.log.push("Hitler was elected Chancellor! Fascists win!");
-      this.updateUserStats(s, "Fascists");
+      s.winner = "State";
+      s.winReason = "THE OVERSEER HAS ASCENDED";
+      s.log.push("The Overseer was elected Chancellor! State Supremacy!");
+      this.updateUserStats(s, "State");
       return;
     }
 
@@ -718,7 +731,7 @@ export class GameEngine {
 
     s.electionTracker++;
     if (s.electionTracker === 3) {
-      s.log.push("Election tracker reached 3! Chaos policy enacted.");
+      s.log.push("Election tracker reached 3! Chaos directive enacted.");
       if (s.deck.length < 1) {
         s.deck = shuffle([...s.deck, ...s.discard]);
         s.discard = [];
@@ -775,7 +788,7 @@ export class GameEngine {
         const top3 = state.deck.slice(0, 3);
         this.io.to(state.presidentId!).emit("policyPeekResult", top3);
         state.log.push(
-          `${state.players.find(p => p.id === state.presidentId)?.name} peeked at the top 3 policies.`
+          `${state.players.find(p => p.id === state.presidentId)?.name} previewed the top 3 directives.`
         );
       }
 
@@ -801,7 +814,7 @@ export class GameEngine {
       state.presidentIdx = state.players.indexOf(target);
       this.startElection(state, roomId);
     } else if (state.currentExecutiveAction === "PolicyPeek") {
-      state.log.push("President peeked at the top 3 policies.");
+      state.log.push("President previewed the top 3 directives.");
       if (state.presidentId) {
         this.io.to(state.presidentId).emit("policyPeekResult", state.deck.slice(0, 3));
       }
@@ -827,12 +840,12 @@ export class GameEngine {
       if (u) { u.stats.deaths++; await saveUser(u); }
     }
 
-    if (target.role === "Hitler") {
+    if (target.role === "Overseer") {
       state.phase    = "GameOver";
-      state.winner   = "Liberals";
-      state.winReason = "Hitler was executed!";
-      state.log.push("Hitler was executed! Liberals win!");
-      await this.updateUserStats(state, "Liberals");
+      state.winner = "Civil";
+      state.winReason = "THE OVERSEER IS ELIMINATED — CHARTER RESTORED";
+      state.log.push("The Overseer was eliminated! Charter Restored!");
+      await this.updateUserStats(state, "Civil");
     } else {
       this.nextPresident(state, roomId, true);
     }
@@ -842,7 +855,7 @@ export class GameEngine {
     state.log.push(`President investigated ${target.name}.`);
     if (!state.presidentId) return;
 
-    const investigationRole = target.role === "Liberal" ? "Liberal" : "Fascist";
+    const investigationRole = target.role === "Civil" ? "Civil" : "State";
     this.io.to(state.presidentId).emit("investigationResult", {
       targetName: target.name,
       role: investigationRole,
@@ -856,7 +869,7 @@ export class GameEngine {
         if (!state.isPaused) {
           this.postAIChat(
             state, presPlayer,
-            investigationRole === "Fascist" ? CHAT.investigateFascist : CHAT.investigateLiberal
+            investigationRole === "State" ? CHAT.investigateState : CHAT.investigateCivil
           );
           this.broadcastState(roomId);
         }
@@ -872,7 +885,7 @@ export class GameEngine {
 
   handleVetoResponse(state: GameState, roomId: string, player: Player, agree: boolean): void {
     if (agree) {
-      state.log.push(`${player.name} (President) agreed to the Veto. Both policies discarded.`);
+      state.log.push(`${player.name} (President) agreed to the Veto. Both directives discarded.`);
       state.discard.push(...state.chancellorPolicies);
       state.chancellorPolicies = [];
       state.vetoRequested = false;
@@ -892,7 +905,7 @@ export class GameEngine {
 
       state.electionTracker++;
       if (state.electionTracker === 3) {
-        state.log.push("Election tracker reached 3! Chaos policy enacted.");
+        state.log.push("Election tracker reached 3! Chaos directive enacted.");
         if (state.deck.length < 1) {
           state.deck = shuffle([...state.deck, ...state.discard]);
           state.discard = [];
@@ -909,7 +922,7 @@ export class GameEngine {
 
       this.triggerAIDeclarations(state, roomId);
     } else {
-      state.log.push(`${player.name} (President) denied the Veto. Chancellor must play a policy.`);
+      state.log.push(`${player.name} (President) denied the Veto. Chancellor must enact a directive.`);
       state.vetoRequested = false;
     }
 
@@ -1174,35 +1187,35 @@ export class GameEngine {
 
   async checkVictory(state: GameState, roomId: string): Promise<void> {
     if (state.phase === "GameOver") return;
-    if (state.liberalPolicies >= 5) {
+    if (state.civilDirectives >= 5) {
       state.phase    = "GameOver";
-      state.winner   = "Liberals";
-      state.winReason = "5 Liberal policies enacted!";
-      state.log.push("5 Liberal policies enacted! Liberals win!");
-      await this.updateUserStats(state, "Liberals");
-    } else if (state.fascistPolicies >= 6) {
+      state.winner = "Civil";
+      state.winReason = "CHARTER RESTORED";
+      state.log.push("5 Civil directives enacted! Charter Restored!");
+      await this.updateUserStats(state, "Civil");
+    } else if (state.stateDirectives >= 6) {
       state.phase    = "GameOver";
-      state.winner   = "Fascists";
-      state.winReason = "6 Fascist policies enacted!";
-      state.log.push("6 Fascist policies enacted! Fascists win!");
-      await this.updateUserStats(state, "Fascists");
+      state.winner = "State";
+      state.winReason = "STATE SUPREMACY";
+      state.log.push("6 State directives enacted! State Supremacy!");
+      await this.updateUserStats(state, "State");
     }
   }
 
-  async updateUserStats(state: GameState, winningSide: "Liberals" | "Fascists"): Promise<void> {
+  async updateUserStats(state: GameState, winningSide: "Civil" | "State"): Promise<void> {
     for (const p of state.players) {
       if (p.isAI || !p.userId) continue;
       const user = await getUserById(p.userId);
       if (!user) continue;
 
       user.stats.gamesPlayed++;
-      if      (p.role === "Liberal") user.stats.liberalGames++;
-      else if (p.role === "Fascist") user.stats.fascistGames++;
-      else if (p.role === "Hitler")  user.stats.hitlerGames++;
+      if      (p.role === "Civil")    user.stats.civilGames++;
+      else if (p.role === "State")    user.stats.stateGames++;
+      else if (p.role === "Overseer") user.stats.overseerGames++;
 
       const isWinner =
-        (winningSide === "Liberals" && p.role === "Liberal") ||
-        (winningSide === "Fascists" && (p.role === "Fascist" || p.role === "Hitler"));
+        (winningSide === "Civil" && p.role === "Civil") ||
+        (winningSide === "State" && (p.role === "State" || p.role === "Overseer"));
 
       if (isWinner) {
         user.stats.wins++;

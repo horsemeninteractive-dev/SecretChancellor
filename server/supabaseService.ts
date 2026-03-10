@@ -10,8 +10,25 @@ const users: Map<string, any> = new Map();
 
 function mapSupabaseToUser(data: any): any {
   if (!data) return null;
+  
+  // Migrate old stats keys if they exist
+  const stats = data.stats || {};
+  if (stats.liberalGames !== undefined && (stats.civilGames === undefined || stats.civilGames === null)) {
+    stats.civilGames = stats.liberalGames;
+    delete stats.liberalGames;
+  }
+  if (stats.fascistGames !== undefined && (stats.stateGames === undefined || stats.stateGames === null)) {
+    stats.stateGames = stats.fascistGames;
+    delete stats.fascistGames;
+  }
+  if (stats.hitlerGames !== undefined && (stats.overseerGames === undefined || stats.overseerGames === null)) {
+    stats.overseerGames = stats.hitlerGames;
+    delete stats.hitlerGames;
+  }
+
   return {
     ...data,
+    stats,
     avatarUrl:         data.avatar_url,
     ownedCosmetics:    data.owned_cosmetics,
     activeFrame:       data.active_frame,
@@ -112,6 +129,69 @@ export async function getUserByDiscordId(discordId: string): Promise<any> {
 }
 
 // ---------------------------------------------------------------------------
+// Friends operations
+// ---------------------------------------------------------------------------
+
+export async function getFriends(userId: string): Promise<any[]> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from("friends")
+      .select("*, user_id_1, user_id_2")
+      .or(`user_id_1.eq.${userId},user_id_2.eq.${userId}`)
+      .eq("status", "accepted");
+    if (error) return [];
+    
+    const friendIds = data.map(f => f.user_id_1 === userId ? f.user_id_2 : f.user_id_1);
+    const { data: friendsData, error: friendsError } = await supabase
+      .from("users")
+      .select("*")
+      .in("id", friendIds);
+    if (friendsError) return [];
+    return friendsData.map(mapSupabaseToUser);
+  }
+  return []; // In-memory fallback not implemented for friends yet
+}
+
+export async function sendFriendRequest(userId1: string, userId2: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    await supabase
+      .from("friends")
+      .insert({ user_id_1: userId1, user_id_2: userId2, status: 'pending' });
+  }
+}
+
+export async function acceptFriendRequest(userId1: string, userId2: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    await supabase
+      .from("friends")
+      .update({ status: 'accepted' })
+      .or(`and(user_id_1.eq.${userId1},user_id_2.eq.${userId2}),and(user_id_1.eq.${userId2},user_id_2.eq.${userId1})`);
+  }
+}
+
+export async function isFriend(userId1: string, userId2: string): Promise<boolean> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from("friends")
+      .select("*")
+      .or(`and(user_id_1.eq.${userId1},user_id_2.eq.${userId2}),and(user_id_1.eq.${userId2},user_id_2.eq.${userId1})`)
+      .eq("status", "accepted")
+      .single();
+    return !error && !!data;
+  }
+  return false;
+}
+
+export async function removeFriend(userId1: string, userId2: string): Promise<void> {
+  if (isSupabaseConfigured) {
+    await supabase
+      .from("friends")
+      .delete()
+      .or(`and(user_id_1.eq.${userId1},user_id_2.eq.${userId2}),and(user_id_1.eq.${userId2},user_id_2.eq.${userId1})`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Write operations
 // ---------------------------------------------------------------------------
 
@@ -140,9 +220,9 @@ export function makeNewUser(overrides: Partial<any> = {}): any {
       gamesPlayed:  0,
       wins:         0,
       losses:       0,
-      liberalGames: 0,
-      fascistGames: 0,
-      hitlerGames:  0,
+      civilGames:   0,
+      stateGames:   0,
+      overseerGames:0,
       kills:        0,
       deaths:       0,
       elo:          1000,

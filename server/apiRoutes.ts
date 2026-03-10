@@ -12,9 +12,15 @@ import {
   getUserByDiscordId,
   saveUser,
   makeNewUser,
+  getFriends,
+  sendFriendRequest,
+  acceptFriendRequest,
+  isFriend,
+  removeFriend,
+  getUserById,
 } from "./supabaseService.ts";
 
-const JWT_SECRET = process.env.JWT_SECRET || "secret-hitler-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET || "secret-overseer-secret-key";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -55,8 +61,15 @@ function oauthSuccessPage(user: any, token: string): string {
 export function registerRoutes(
   app: Express,
   io: Server,
-  rooms: Map<string, GameState>
+  rooms: Map<string, GameState>,
+  userSockets: Map<string, string>
 ): void {
+
+  // ── Version endpoint ────────────────────────────────────────────────────────
+  app.get("/version", (_req: Request, res: Response) => {
+    res.setHeader("Cache-Control", "no-store");
+    res.json({ version: process.env.APP_VERSION || "dev" });
+  });
 
   // ── Auth ──────────────────────────────────────────────────────────────────
 
@@ -103,8 +116,14 @@ export function registerRoutes(
   app.get("/api/auth/google/url", (req: Request, res: Response) => {
     const origin = getAppUrl(req);
     const state  = encodeURIComponent(JSON.stringify({ origin }));
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    console.log("Google Client ID:", clientId);
+    if (!clientId) {
+        console.error("GOOGLE_CLIENT_ID is not set!");
+        return res.status(500).json({ error: "Google OAuth not configured" });
+    }
     const params = new URLSearchParams({
-      client_id:     process.env.GOOGLE_CLIENT_ID || "GOOGLE_CLIENT_ID",
+      client_id:     clientId,
       redirect_uri:  `${origin}/auth/google/callback`,
       response_type: "code",
       scope:         "openid profile email",
@@ -153,24 +172,7 @@ export function registerRoutes(
 
   // ── Discord OAuth ─────────────────────────────────────────────────────────
 
-  app.get("/api/auth/discord/url", (req: Request, res: Response) => {
-    const origin = getAppUrl(req);
-    const state  = encodeURIComponent(JSON.stringify({ origin }));
-    const params = new URLSearchParams({
-      client_id:     process.env.DISCORD_CLIENT_ID || "DISCORD_CLIENT_ID",
-      redirect_uri:  `${origin}/auth/discord/callback`,
-      response_type: "code",
-      scope:         "identify email",
-      state,
-    });
-    res.json({ url: `https://discord.com/api/oauth2/authorize?${params}` });
-  });
-
-  app.get(["/auth/discord/callback", "/auth/discord/callback/"], async (req: Request, res: Response) => {
-    const { code } = req.query;
-    if (!code) return res.status(400).send("No code provided");
-    try {
-      const origin      = getAppUrl(req);
+  async function handleDiscordAuth(code: string, origin: string) {
       const redirectUri = `${origin}/auth/discord/callback`;
       const tokenRes    = await axios.post(
         "https://discord.com/api/oauth2/token",
@@ -203,6 +205,48 @@ export function registerRoutes(
       }
 
       const token = jwt.sign({ username: user.username }, JWT_SECRET);
+      return { user, token };
+  }
+
+  app.get("/api/auth/discord/url", (req: Request, res: Response) => {
+    const origin = getAppUrl(req);
+    const state  = encodeURIComponent(JSON.stringify({ origin }));
+    const clientId = process.env.DISCORD_CLIENT_ID;
+    console.log("Discord Client ID:", clientId);
+    if (!clientId) {
+        console.error("DISCORD_CLIENT_ID is not set!");
+        return res.status(500).json({ error: "Discord OAuth not configured" });
+    }
+    const params = new URLSearchParams({
+      client_id:     clientId,
+      redirect_uri:  `${origin}/auth/discord/callback`,
+      response_type: "code",
+      scope:         "identify email",
+      state,
+    });
+    res.json({ url: `https://discord.com/api/oauth2/authorize?${params}` });
+  });
+
+  app.post("/api/auth/discord/callback", async (req: Request, res: Response) => {
+    const { code } = req.body;
+    if (!code) return res.status(400).json({ error: "No code provided" });
+    try {
+      const origin = getAppUrl(req);
+      const { user, token } = await handleDiscordAuth(code, origin);
+      const { password: _, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword, token });
+    } catch (err: any) {
+      console.error("Discord Activity Auth Error:", err.response?.data || err.message);
+      res.status(500).json({ error: "Authentication failed" });
+    }
+  });
+
+  app.get(["/auth/discord/callback", "/auth/discord/callback/"], async (req: Request, res: Response) => {
+    const { code } = req.query;
+    if (!code) return res.status(400).send("No code provided");
+    try {
+      const origin = getAppUrl(req);
+      const { user, token } = await handleDiscordAuth(code as string, origin);
       res.send(oauthSuccessPage(user, token));
     } catch (err: any) {
       console.error("Discord OAuth Error:", err.response?.data || err.message);
@@ -265,7 +309,103 @@ export function registerRoutes(
     }
   });
 
-  // ── Profile / Cosmetics ───────────────────────────────────────────────────
+  // ── Friends ───────────────────────────────────────────────────────────────
+
+  app.get("/api/friends", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const user = await getUser(decoded.username);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      const friends = await getFriends(user.id);
+      res.json({ friends });
+    } catch (_) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  });
+
+  app.post("/api/friends/request", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    const { targetUserId } = req.body;
+    if (!token) return res.status(401).json({ error: "No token" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const user = await getUser(decoded.username);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      await sendFriendRequest(user.id, targetUserId);
+      res.json({ success: true });
+    } catch (_) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  });
+
+  app.post("/api/friends/accept", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    const { targetUserId } = req.body;
+    if (!token) return res.status(401).json({ error: "No token" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const user = await getUser(decoded.username);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      await acceptFriendRequest(user.id, targetUserId);
+      res.json({ success: true });
+    } catch (_) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  });
+
+  app.get("/api/user/:userId", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const currentUser = await getUser(decoded.username);
+      if (!currentUser) return res.status(404).json({ error: "User not found" });
+      
+      const user = await getUserById(req.params.userId);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      
+      const isFriendStatus = await isFriend(currentUser.id, user.id);
+      
+      const { password: _, ...userWithoutPassword } = user;
+      res.json({ user: userWithoutPassword, isFriend: isFriendStatus });
+    } catch (_) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  });
+
+  app.delete("/api/friends/:targetUserId", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const user = await getUser(decoded.username);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      await removeFriend(user.id, req.params.targetUserId);
+      res.json({ success: true });
+    } catch (_) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  });
+
+  app.post("/api/friends/invite/:friendId", async (req: Request, res: Response) => {
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) return res.status(401).json({ error: "No token" });
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
+      const user = await getUser(decoded.username);
+      if (!user) return res.status(404).json({ error: "User not found" });
+      
+      const friendSocketId = userSockets.get(req.params.friendId);
+      if (friendSocketId) {
+        io.to(friendSocketId).emit("friendInvite", { fromUserId: user.id, fromUsername: user.username });
+      }
+      res.json({ success: true });
+    } catch (_) {
+      res.status(401).json({ error: "Invalid token" });
+    }
+  });
 
   app.post("/api/profile/frame", async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(" ")[1];
