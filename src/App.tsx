@@ -11,7 +11,7 @@ import { MUSIC_TRACKS, SOUND_PACKS } from './lib/audio';
 import { discordSdk, setupDiscordSdk } from './lib/discord';
 import { cn } from './lib/utils';
 
-const CLIENT_VERSION = 'v0.8.8';
+const CLIENT_VERSION = 'v0.8.9';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);

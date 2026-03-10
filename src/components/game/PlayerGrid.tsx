@@ -5,7 +5,6 @@ import { socket } from '../../socket';
 import { GameState, Player } from '../../types';
 import { getFrameStyles, getVoteStyles } from '../../lib/cosmetics';
 import { cn } from '../../lib/utils';
-import { PlayerProfileModal } from './modals/PlayerProfileModal';
 
 interface PlayerGridProps {
   gameState: GameState;
@@ -13,10 +12,11 @@ interface PlayerGridProps {
   speakingPlayers: Record<string, boolean>;
   playSound: (key: string) => void;
   token: string;
+  selectedPlayerId: string | null;
+  setSelectedPlayerId: (id: string | null) => void;
 }
 
-export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token }: PlayerGridProps) => {
-  const [selectedPlayerId, setSelectedPlayerId] = React.useState<string | null>(null);
+export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, selectedPlayerId, setSelectedPlayerId }: PlayerGridProps) => {
   const isPresidentialCandidate = me?.isPresidentialCandidate;
   const isPresident = me?.isPresident;
   const isManyPlayers = gameState.players.length > 6;
@@ -34,7 +34,13 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token }:
           return (
             <div
               key={p.id}
-              onClick={() => { playSound('click'); setSelectedPlayerId(p.id); }}
+              onClick={(e) => { 
+                e.stopPropagation();
+                playSound('click'); 
+                if (p.userId) {
+                  setSelectedPlayerId(p.userId);
+                }
+              }}
               className={cn(
                 'relative p-1 sm:p-4 rounded-xl border transition-all duration-300 flex flex-col items-center justify-center min-h-0 card-border overflow-hidden cursor-pointer',
                 p.isAlive ? 'bg-[#1a1a1a]/80 backdrop-blur-sm border-[#222]' : 'bg-[#111]/50 border-transparent opacity-50 grayscale',
@@ -184,14 +190,6 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token }:
           );
         })}
       </div>
-      {selectedPlayerId && (
-        <PlayerProfileModal
-          userId={selectedPlayerId}
-          token={token}
-          onClose={() => setSelectedPlayerId(null)}
-          playSound={playSound}
-        />
-      )}
     </div>
   );
 };

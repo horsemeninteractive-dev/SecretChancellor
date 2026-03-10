@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import ReactDOM from 'react-dom';
 import { motion } from 'motion/react';
-import { X, Trophy, User as UserIcon, UserPlus, UserMinus } from 'lucide-react';
+import { X, Trophy, User as UserIcon, UserPlus, UserMinus, Shield, Check, Zap } from 'lucide-react';
 import { User } from '../../../types';
 import { cn } from '../../../lib/utils';
+import { getFrameStyles } from '../../../lib/cosmetics';
 
 interface PlayerProfileModalProps {
   userId: string;
@@ -24,8 +26,10 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ userId, 
         });
         if (response.ok) {
           const data = await response.json();
-          setUser(data.user);
-          setIsFriend(data.isFriend);
+          if (data && data.user) {
+            setUser(data.user);
+            setIsFriend(!!data.isFriend);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch user", err);
@@ -63,10 +67,29 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ userId, 
     }
   };
 
-  if (loading || !user) return null;
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="text-white font-mono">Loading profile...</div>
+      </div>
+    );
+  }
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+  if (!user) {
+    return (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+        <div className="text-white font-mono">Failed to load profile.</div>
+        <button onClick={onClose} className="ml-4 text-white underline">Close</button>
+      </div>
+    );
+  }
+
+  const winRate = user.stats.gamesPlayed > 0 
+    ? Math.round((user.stats.wins / user.stats.gamesPlayed) * 100) 
+    : 0;
+
+  return ReactDOM.createPortal(
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <motion.div 
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -78,44 +101,76 @@ export const PlayerProfileModal: React.FC<PlayerProfileModalProps> = ({ userId, 
         initial={{ opacity: 0, scale: 0.9, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-        className="relative w-full max-w-sm bg-[#1a1a1a] border border-[#222] rounded-[2rem] p-8 shadow-2xl text-white"
+        className="relative w-full max-w-sm bg-[#1a1a1a] border border-[#222] rounded-[2rem] overflow-hidden shadow-2xl text-white"
       >
-        <button onClick={onClose} className="absolute top-6 right-6 text-[#444] hover:text-white">
-          <X className="w-6 h-6" />
-        </button>
-        
-        <div className="flex flex-col items-center gap-4">
-          <div className="w-24 h-24 rounded-3xl bg-[#222] border border-[#333] flex items-center justify-center overflow-hidden">
-            {user.avatarUrl ? (
-              <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" />
-            ) : (
-              <UserIcon className="w-12 h-12 text-[#444]" />
-            )}
+        {/* Header - Matching Profile.tsx */}
+        <div className="p-6 bg-[#141414] border-b border-[#222] flex flex-col items-center gap-4">
+          <button onClick={onClose} className="absolute top-6 right-6 text-[#444] hover:text-white transition-colors">
+            <X className="w-6 h-6" />
+          </button>
+
+          <div className="relative">
+            <div className="w-20 h-20 rounded-3xl bg-[#222] border border-[#333] flex items-center justify-center overflow-hidden relative">
+              {user.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" />
+              ) : (
+                <UserIcon className="w-10 h-10 text-[#444]" />
+              )}
+              {user.activeFrame && (
+                <div className={cn(
+                  "absolute inset-0 border-4 rounded-3xl pointer-events-none",
+                  getFrameStyles(user.activeFrame)
+                )} />
+              )}
+            </div>
+            <div className="absolute -bottom-2 -right-2 bg-red-900 border border-red-500 text-white text-[8px] font-mono px-2 py-0.5 rounded-lg shadow-lg">
+              LVL {Math.floor(user.stats.gamesPlayed / 5) + 1}
+            </div>
           </div>
-          <h2 className="text-2xl font-thematic">{user.username}</h2>
-          
-          <div className="grid grid-cols-2 gap-4 w-full">
-            <div className="bg-[#141414] p-3 rounded-xl border border-[#222] text-center">
-              <div className="text-[10px] text-[#666] uppercase">ELO</div>
-              <div className="text-lg font-serif italic text-yellow-500">{user.stats.elo}</div>
+
+          <div className="text-center">
+            <h2 className="text-2xl font-thematic text-white tracking-wide mb-2">{user.username}</h2>
+            <div className="flex justify-center gap-2">
+              <div className="flex items-center gap-1.5 px-2.5 py-1 bg-[#222] rounded-lg border border-[#333]">
+                <Trophy className="w-3.5 h-3.5 text-yellow-500" />
+                <span className="text-xs font-mono text-yellow-500">{user.stats.elo} ELO</span>
+              </div>
             </div>
-            <div className="bg-[#141414] p-3 rounded-xl border border-[#222] text-center">
-              <div className="text-[10px] text-[#666] uppercase">Wins</div>
-              <div className="text-lg font-serif italic text-emerald-500">{user.stats.wins}</div>
-            </div>
+          </div>
+        </div>
+        
+        <div className="p-6 space-y-6">
+          <div className="grid grid-cols-2 gap-3">
+            <StatCard label="Wins" value={user.stats.wins} icon={<Trophy className="w-3 h-3" />} />
+            <StatCard label="Played" value={user.stats.gamesPlayed} icon={<Shield className="w-3 h-3" />} />
+            <StatCard label="Win Rate" value={`${winRate}%`} icon={<Check className="w-3 h-3" />} />
+            <StatCard label="Kills" icon={<Zap className="w-3 h-3 text-yellow-500" />} value={user.stats.kills} />
           </div>
 
           <button 
             onClick={toggleFriend}
             className={cn(
-              "w-full py-3 rounded-xl font-mono uppercase tracking-widest flex items-center justify-center gap-2 transition-all",
-              isFriend ? "bg-[#222] text-white hover:bg-[#333]" : "bg-red-900 text-white hover:bg-red-800"
+              "w-full py-3 rounded-xl font-mono text-xs uppercase tracking-widest flex items-center justify-center gap-2 transition-all border",
+              isFriend 
+                ? "bg-[#222] text-white border-[#333] hover:bg-[#333]" 
+                : "bg-red-900 text-white border-red-700 hover:bg-red-800"
             )}
           >
-            {isFriend ? <><UserMinus size={16} /> Remove Friend</> : <><UserPlus size={16} /> Add Friend</>}
+            {isFriend ? <><UserMinus size={14} /> Remove Friend</> : <><UserPlus size={14} /> Add Friend</>}
           </button>
         </div>
       </motion.div>
-    </div>
+    </div>,
+    document.body
   );
 };
+
+const StatCard = ({ label, value, icon }: { label: string; value: string | number; icon?: React.ReactNode }) => (
+  <div className="bg-[#141414] p-3 rounded-xl border border-[#222] flex flex-col gap-1">
+    <div className="flex items-center gap-1.5 text-[#444]">
+      {icon}
+      <div className="text-[9px] uppercase tracking-wider font-mono">{label}</div>
+    </div>
+    <div className="text-lg font-serif italic text-white leading-none">{value}</div>
+  </div>
+);

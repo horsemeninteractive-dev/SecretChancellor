@@ -262,8 +262,34 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
               activeTab === 'stats' ? "text-white" : "text-[#444] hover:text-[#666]"
             )}
           >
-            Statistics
+            Stats
             {activeTab === 'stats' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
+          </button>
+          <button 
+            onClick={() => {
+              playSound('click');
+              setActiveTab('friends');
+            }}
+            className={cn(
+              "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
+              activeTab === 'friends' ? "text-white" : "text-[#444] hover:text-[#666]"
+            )}
+          >
+            Friends
+            {activeTab === 'friends' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
+          </button>
+          <button 
+            onClick={() => {
+              playSound('click');
+              setActiveTab('pass');
+            }}
+            className={cn(
+              "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
+              activeTab === 'pass' ? "text-white" : "text-[#444] hover:text-[#666]"
+            )}
+          >
+            Pass
+            {activeTab === 'pass' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
           </button>
           <button 
             onClick={() => {
@@ -281,19 +307,6 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
           <button 
             onClick={() => {
               playSound('click');
-              setActiveTab('pass');
-            }}
-            className={cn(
-              "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
-              activeTab === 'pass' ? "text-white" : "text-[#444] hover:text-[#666]"
-            )}
-          >
-            Assembly Pass
-            {activeTab === 'pass' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
-          </button>
-          <button 
-            onClick={() => {
-              playSound('click');
               setActiveTab('settings');
             }}
             className={cn(
@@ -304,26 +317,11 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
             Settings
             {activeTab === 'settings' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
           </button>
-          <button 
-            onClick={() => {
-              playSound('click');
-              setActiveTab('friends');
-            }}
-            className={cn(
-              "flex-1 py-4 text-xs font-mono uppercase tracking-widest transition-all relative",
-              activeTab === 'friends' ? "text-white" : "text-[#444] hover:text-[#666]"
-            )}
-          >
-            Friends
-            {activeTab === 'friends' && <motion.div layoutId="tab" className="absolute bottom-0 left-0 right-0 h-0.5 bg-red-500" />}
-          </button>
         </div>
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-          {activeTab === 'friends' ? (
-            <FriendsList user={user} token={token} playSound={playSound} />
-          ) : activeTab === 'stats' ? (
+          {activeTab === 'stats' ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <StatCard label="Games Played" value={user.stats.gamesPlayed} icon={<Shield className="w-4 h-4" />} />
               <StatCard label="Win Rate" value={`${winRate}%`} icon={<Trophy className="w-4 h-4" />} />
@@ -334,6 +332,8 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
               <StatCard label="Kills" value={user.stats.kills} icon={<Zap className="w-4 h-4 text-yellow-500" />} />
               <StatCard label="Deaths" value={user.stats.deaths} icon={<Heart className="w-4 h-4 text-red-500" />} />
             </div>
+          ) : activeTab === 'friends' ? (
+            <FriendsList user={user} token={token} playSound={playSound} />
           ) : activeTab === 'pass' ? (
             <div className="relative max-w-2xl mx-auto py-8">
               {/* Headers */}

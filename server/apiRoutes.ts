@@ -17,7 +17,6 @@ import {
   acceptFriendRequest,
   isFriend,
   removeFriend,
-  getUserById,
 } from "./supabaseService.ts";
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret-overseer-secret-key";

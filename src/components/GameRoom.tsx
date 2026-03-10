@@ -20,8 +20,9 @@ import { InvestigationModal } from './game/modals/InvestigationModal';
 import { PolicyPeekModal } from './game/modals/PolicyPeekModal';
 import { DossierModal } from './game/modals/DossierModal';
 import { DeclarationModal } from './game/modals/DeclarationModal';
+import { PlayerProfileModal } from './game/modals/PlayerProfileModal';
 
-const CLIENT_VERSION = 'v0.8.6';
+const CLIENT_VERSION = 'v0.8.9';
 
 interface GameRoomProps {
   gameState: GameState;
@@ -108,6 +109,7 @@ export const GameRoom = ({
   // ── Modals ───────────────────────────────────────────────────────────────
   const [peekedPolicies, setPeekedPolicies] = useState<Policy[] | null>(null);
   const [investigationResult, setInvestigationResult] = useState<{ targetName: string; role: Role } | null>(null);
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
 
   useEffect(() => {
     socket.on('policyPeekResult', (policies: Policy[]) => setPeekedPolicies(policies));
@@ -411,6 +413,8 @@ export const GameRoom = ({
           speakingPlayers={speakingPlayers}
           playSound={playSound}
           token={token || ''}
+          selectedPlayerId={selectedPlayerId}
+          setSelectedPlayerId={setSelectedPlayerId}
         />
 
         <ActionBar
@@ -467,6 +471,14 @@ export const GameRoom = ({
       />
 
       {/* Modals */}
+      {selectedPlayerId && (
+        <PlayerProfileModal
+          userId={selectedPlayerId}
+          token={token || ''}
+          onClose={() => setSelectedPlayerId(null)}
+          playSound={playSound}
+        />
+      )}
       <InvestigationModal
         result={investigationResult}
         onClose={() => setInvestigationResult(null)}
