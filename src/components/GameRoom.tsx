@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { socket } from '../socket';
-import { GameState, Player, Role, Policy, User } from '../types';
+import { GameState, Player, Role, Policy, User, PrivateInfo } from '../types';
 import { getBackgroundTexture } from '../lib/cosmetics';
 import { cn } from '../lib/utils';
+import * as aiSpeech from '../services/aiSpeech';
 
 import { GameHeader } from './game/GameHeader';
 import { PolicyTracks } from './game/PolicyTracks';
@@ -22,12 +23,13 @@ import { DossierModal } from './game/modals/DossierModal';
 import { DeclarationModal } from './game/modals/DeclarationModal';
 import { FriendRequestModal } from './game/modals/FriendRequestModal';
 import { PlayerProfileModal } from './game/modals/PlayerProfileModal';
+import { TitleAbilityModal } from './game/modals/TitleAbilityModal';
 
-const CLIENT_VERSION = 'v0.8.9';
+const CLIENT_VERSION = 'v0.8.10';
 
 interface GameRoomProps {
   gameState: GameState;
-  privateInfo: { role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null;
+  privateInfo: PrivateInfo | null;
   user: User | null;
   token: string | null;
   onLeaveRoom: () => void;
@@ -36,10 +38,12 @@ interface GameRoomProps {
   onJoinRoom: (roomId: string) => void;
   setUser: (u: User) => void;
   setGameState: (gs: GameState | null) => void;
-  setPrivateInfo: (info: { role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null) => void;
+  setPrivateInfo: (info: PrivateInfo | null) => void;
   updateAvailable: boolean;
   playSound: (soundKey: string) => void;
   soundVolume: number;
+  ttsVoice: string;
+  isAiVoiceEnabled: boolean;
 }
 
 export const GameRoom = ({
@@ -47,12 +51,13 @@ export const GameRoom = ({
   onLeaveRoom, onPlayAgain, onOpenProfile, onJoinRoom,
   setUser, setGameState, setPrivateInfo,
   updateAvailable,
-  playSound, soundVolume
+  playSound, soundVolume, ttsVoice, isAiVoiceEnabled
 }: GameRoomProps) => {
   const me = gameState.players.find(p => p.id === socket.id);
 
   // ── UI panels ────────────────────────────────────────────────────────────
   const [isLogOpen, setIsLogOpen] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
   const [isDossierOpen, setIsDossierOpen] = useState(false);
@@ -84,6 +89,16 @@ export const GameRoom = ({
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (chatText.trim()) {
+      if (chatText.trim() === '/debug') {
+        setShowDebug(true);
+        setChatText('');
+        return;
+      }
+      if (chatText.trim() === '/nodebug') {
+        setShowDebug(false);
+        setChatText('');
+        return;
+      }
       socket.emit('sendMessage', chatText.trim());
       setChatText('');
       setShowEmojiPicker(false);
@@ -110,12 +125,16 @@ export const GameRoom = ({
 
   // ── Modals ───────────────────────────────────────────────────────────────
   const [peekedPolicies, setPeekedPolicies] = useState<Policy[] | null>(null);
+  const [peekTitle, setPeekTitle] = useState<string | undefined>(undefined);
   const [investigationResult, setInvestigationResult] = useState<{ targetName: string; role: Role } | null>(null);
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const [pendingRequest, setPendingRequest] = useState<{ fromUserId: string; fromUsername: string } | null>(null);
 
   useEffect(() => {
-    socket.on('policyPeekResult', (policies: Policy[]) => setPeekedPolicies(policies));
+    socket.on('policyPeekResult', (policies: Policy[], title?: string) => {
+      setPeekedPolicies(policies);
+      setPeekTitle(title);
+    });
     socket.on('investigationResult', (result) => setInvestigationResult(result));
     socket.on('friendRequestReceived', async (data: { fromUserId: string }) => {
       try {
@@ -174,7 +193,11 @@ export const GameRoom = ({
       const type = pendingDeclarationRef.current;
       pendingDeclarationRef.current = null;
       setDeclarationType(type);
-      setDeclCiv(0); setDeclSta(0); setDeclDrawCiv(0); setDeclDrawSta(3);
+      if (type === 'President') {
+        setDeclCiv(0); setDeclSta(2); setDeclDrawCiv(0); setDeclDrawSta(3);
+      } else {
+        setDeclCiv(0); setDeclSta(2);
+      }
       setShowDeclarationUI(true);
     }
   }, [showPolicyAnim]);
@@ -205,7 +228,11 @@ export const GameRoom = ({
       if (!showPolicyAnimRef.current) {
         pendingDeclarationRef.current = null;
         setDeclarationType(needed);
-        setDeclCiv(0); setDeclSta(0); setDeclDrawCiv(0); setDeclDrawSta(3);
+        if (needed === 'President') {
+          setDeclCiv(0); setDeclSta(2); setDeclDrawCiv(0); setDeclDrawSta(3);
+        } else {
+          setDeclCiv(0); setDeclSta(2);
+        }
         setShowDeclarationUI(true);
       } else {
         pendingDeclarationRef.current = needed;
@@ -241,6 +268,9 @@ export const GameRoom = ({
   const speak = (text: string) => {
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 0.9; u.pitch = 0.8;
+    const voices = window.speechSynthesis.getVoices();
+    const voice = voices.find(v => v.name === ttsVoice);
+    if (voice) u.voice = voice;
     window.speechSynthesis.speak(u);
   };
 
@@ -273,7 +303,33 @@ export const GameRoom = ({
 
   // ── Voice chat ───────────────────────────────────────────────────────────
   const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const [isVideoActive, setIsVideoActive] = useState(false);
+  
+  useEffect(() => {
+    aiSpeech.initVoices();
+  }, []);
+
+  useEffect(() => {
+    if (!isAiVoiceEnabled) return;
+    const lastMessage = gameState.messages[gameState.messages.length - 1];
+    if (!lastMessage) return;
+    
+    const sender = gameState.players.find(p => p.name === lastMessage.sender);
+    if (sender && sender.isAI) {
+      const voice = aiSpeech.getVoiceForAi(sender.name);
+      if (voice) {
+        aiSpeech.speakAiMessage(
+          lastMessage.text, 
+          sender.name, 
+          voice,
+          () => setSpeakingPlayers(prev => ({ ...prev, [sender.id]: true })),
+          () => setSpeakingPlayers(prev => ({ ...prev, [sender.id]: false }))
+        );
+      }
+    }
+  }, [gameState.messages.length, isAiVoiceEnabled]);
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [speakingPlayers, setSpeakingPlayers] = useState<Record<string, boolean>>({});
   const peersRef = useRef<Record<string, RTCPeerConnection>>({});
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -287,7 +343,11 @@ export const GameRoom = ({
       }
       const context = audioContextRef.current;
       if (context.state === 'suspended') await context.resume();
-      const source = context.createMediaStreamSource(stream);
+      
+      const audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) return;
+      
+      const source = context.createMediaStreamSource(new MediaStream([audioTrack]));
       const analyser = context.createAnalyser();
       analyser.fftSize = 512;
       analyser.smoothingTimeConstant = 0.8;
@@ -328,11 +388,11 @@ export const GameRoom = ({
     };
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
-      const audio = new Audio();
-      audio.srcObject = remoteStream;
-      audio.volume = soundVolume / 100;
-      audio.play().catch(() => {});
-      setupSpeakingDetection(remoteStream, peerId);
+      setRemoteStreams(prev => ({ ...prev, [peerId]: remoteStream }));
+      
+      if (remoteStream.getAudioTracks().length > 0) {
+        setupSpeakingDetection(remoteStream, peerId);
+      }
     };
     pc.onnegotiationneeded = async () => {
       try {
@@ -365,12 +425,25 @@ export const GameRoom = ({
   }, [localStream]);
 
   useEffect(() => {
-    if (isVoiceActive && socket.id && localStream) setupSpeakingDetection(localStream, socket.id);
-  }, [isVoiceActive, localStream]);
+    if (me && !me.isAlive) {
+      setIsVoiceActive(false);
+      setIsVideoActive(false);
+    }
+  }, [me?.isAlive]);
 
   useEffect(() => {
-    if (isVoiceActive) {
-      navigator.mediaDevices.getUserMedia({ audio: true })
+    if ((isVoiceActive || isVideoActive) && socket.id && localStream) setupSpeakingDetection(localStream, socket.id);
+  }, [isVoiceActive, isVideoActive, localStream]);
+
+  const localStreamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    localStreamRef.current = localStream;
+  }, [localStream]);
+
+  useEffect(() => {
+    if (isVoiceActive || isVideoActive) {
+      navigator.mediaDevices.getUserMedia({ audio: isVoiceActive, video: isVideoActive })
         .then(async stream => {
           setLocalStream(stream);
           Object.keys(peersRef.current).forEach(peerId => {
@@ -378,7 +451,7 @@ export const GameRoom = ({
             stream.getTracks().forEach(track => pc.addTrack(track, stream));
           });
         })
-        .catch(err => { console.error('Mic error:', err); setIsVoiceActive(false); });
+        .catch(err => { console.error('Media error:', err); setIsVoiceActive(false); setIsVideoActive(false); });
     } else {
       if (localStream) {
         localStream.getTracks().forEach(track => track.stop());
@@ -389,14 +462,26 @@ export const GameRoom = ({
         });
       }
     }
-    return () => { localStream?.getTracks().forEach(track => track.stop()); };
-  }, [isVoiceActive]);
+    return () => {
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isVoiceActive, isVideoActive]);
+
+  useEffect(() => {
+    return () => {
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, []);
 
   // ── Render ───────────────────────────────────────────────────────────────
   return (
     <div
       className={cn(
-        'fixed inset-0 bg-texture text-[#e4e3e0] font-sans flex flex-col overflow-hidden transition-all duration-1000',
+        'flex-1 w-full bg-texture text-[#e4e3e0] font-sans flex flex-col overflow-hidden transition-all duration-1000',
         gameState.stateDirectives >= 3 && gameState.phase !== 'GameOver' && 'danger-zone-pulse'
       )}
       style={user?.activeBackground ? {
@@ -409,10 +494,8 @@ export const GameRoom = ({
         socketId={socket.id}
         user={user}
         privateInfo={privateInfo}
-        isVoiceActive={isVoiceActive}
         hasNewMessages={hasNewMessages}
         tick={0}
-        onToggleVoice={() => { if (me?.isAlive || gameState.phase === 'GameOver') setIsVoiceActive(v => !v); }}
         onOpenChat={() => { playSound('click'); setIsChatOpen(true); }}
         onOpenHistory={() => { playSound('click'); setIsHistoryOpen(true); }}
         onOpenDossier={() => { playSound('click'); setIsDossierOpen(true); }}
@@ -432,16 +515,24 @@ export const GameRoom = ({
           token={token || ''}
           selectedPlayerId={selectedPlayerId}
           setSelectedPlayerId={setSelectedPlayerId}
+          localStream={localStream}
+          remoteStreams={remoteStreams}
+          isVideoActive={isVideoActive}
         />
 
         <ActionBar
           gameState={gameState}
           me={me}
           user={user}
+          showDebug={showDebug}
           onOpenLog={() => { playSound('click'); setIsLogOpen(true); }}
           onPlayAgain={onPlayAgain}
           onLeaveRoom={onLeaveRoom}
           playSound={playSound}
+          isVoiceActive={isVoiceActive}
+          setIsVoiceActive={setIsVoiceActive}
+          isVideoActive={isVideoActive}
+          setIsVideoActive={setIsVideoActive}
         />
 
         {/* Overlays within main */}
@@ -463,6 +554,7 @@ export const GameRoom = ({
         log={gameState.log}
         isOpen={isLogOpen}
         onClose={() => setIsLogOpen(false)}
+        showDebug={showDebug}
       />
       <RoundHistory
         gameState={gameState}
@@ -513,7 +605,8 @@ export const GameRoom = ({
       />
       <PolicyPeekModal
         policies={peekedPolicies}
-        onClose={() => setPeekedPolicies(null)}
+        title={peekTitle}
+        onClose={() => { setPeekedPolicies(null); setPeekTitle(undefined); }}
       />
       <DossierModal
         isOpen={isDossierOpen}
@@ -533,6 +626,13 @@ export const GameRoom = ({
         setDeclDrawSta={setDeclDrawSta}
         onSubmit={handleSubmitDeclaration}
       />
+      {gameState.titlePrompt && gameState.titlePrompt.playerId === socket.id && (
+        <TitleAbilityModal
+          role={gameState.titlePrompt.role}
+          gameState={gameState}
+          onClose={() => {}}
+        />
+      )}
     </div>
   );
 };

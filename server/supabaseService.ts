@@ -65,6 +65,21 @@ function mapUserToSupabase(userData: any): any {
   };
 }
 
+export async function getLeaderboard(): Promise<any[]> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from("users")
+      .select("*")
+      .order("stats->elo", { ascending: false })
+      .limit(50);
+    if (error) return [];
+    return data.map(mapSupabaseToUser);
+  }
+  return Array.from(users.values())
+    .sort((a, b) => b.stats.elo - a.stats.elo)
+    .slice(0, 50);
+}
+
 // ---------------------------------------------------------------------------
 // Read operations
 // ---------------------------------------------------------------------------

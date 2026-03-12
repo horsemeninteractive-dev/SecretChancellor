@@ -1,11 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Trophy, Coins, Shield, User as UserIcon, Check, ShoppingBag, ArrowLeft, Star, Heart, Zap, Flame, Scroll, Play, Pause } from 'lucide-react';
 import { User, CosmeticItem, Policy } from '../types';
 import { FriendsList } from './FriendsList';
 import { Inventory } from './Inventory';
 import { cn } from '../lib/utils';
-import { getPolicyStyles, getVoteStyles, getFrameStyles } from '../lib/cosmetics';
+import { getPolicyStyles, getVoteStyles, getFrameStyles, getRarity } from '../lib/cosmetics';
 import { DEFAULT_ITEMS, PASS_ITEM_LEVELS } from '../constants';
 
 interface ProfileProps {
@@ -27,9 +27,14 @@ interface ProfileProps {
     setSoundVolume: React.Dispatch<React.SetStateAction<number>>;
     isFullscreen: boolean;
     setIsFullscreen: React.Dispatch<React.SetStateAction<boolean>>;
+    ttsVoice: string;
+    setTtsVoice: React.Dispatch<React.SetStateAction<string>>;
+    isAiVoiceEnabled: boolean;
+    setIsAiVoiceEnabled: React.Dispatch<React.SetStateAction<boolean>>;
   };
   roomId?: string;
   onJoinRoom?: (roomId: string) => void;
+  mode?: 'Casual' | 'Ranked';
 }
 
 const SHOP_ITEMS: CosmeticItem[] = [
@@ -85,12 +90,21 @@ const SHOP_ITEMS: CosmeticItem[] = [
   { id: 'frame-pass-0', name: 'Season 0: Purple Pill', price: 0, type: 'frame', description: 'Exclusive Season 0 animated avatar frame.', imageUrl: 'https://www.transparenttextures.com/patterns/circles-light.png' },
 ];
 
-export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token, playSound, playMusic, stopMusic, settings, roomId, onJoinRoom }) => {
+export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, token, playSound, playMusic, stopMusic, settings, roomId, onJoinRoom, mode }) => {
   const [activeTab, setActiveTab] = useState<'stats' | 'shop' | 'settings' | 'pass' | 'friends' | 'inventory'>('stats');
   const [shopCategory, setShopCategory] = useState<'frame' | 'policy' | 'vote' | 'music' | 'sound' | 'background'>('frame');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [playingItemId, setPlayingItemId] = useState<string | null>(null);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      setVoices(window.speechSynthesis.getVoices());
+    };
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    loadVoices();
+  }, []);
   
   const playPreview = (item: CosmeticItem) => {
     if (playingItemId === item.id) {
@@ -118,7 +132,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
   };
   
   // Settings props destructuring
-  const { isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen } = settings;
+  const { isMusicOn, setIsMusicOn, isSoundOn, setIsSoundOn, musicVolume, setMusicVolume, soundVolume, setSoundVolume, isFullscreen, setIsFullscreen, ttsVoice, setTtsVoice, isAiVoiceEnabled, setIsAiVoiceEnabled } = settings;
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -187,7 +201,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
     ? Math.round((user.stats.wins / user.stats.gamesPlayed) * 100) 
     : 0;
 
-  const filteredItems = SHOP_ITEMS.filter(item => item.type === shopCategory);
+  const filteredItems = SHOP_ITEMS.filter(item => item.type === shopCategory && !PASS_ITEM_LEVELS[item.id]);
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
@@ -208,7 +222,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
         {/* Header */}
         <div className="p-8 bg-[#141414] border-b border-[#222] flex flex-col sm:flex-row items-center gap-8">
           <div className="relative">
-            <div className="w-24 h-24 rounded-3xl bg-[#222] border border-[#333] flex items-center justify-center overflow-hidden relative">
+            <div className="w-24 h-24 rounded-3xl bg-[#222] border border-[#333] flex items-center justify-center relative">
               {user.avatarUrl ? (
                 <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" />
               ) : (
@@ -351,7 +365,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
               <StatCard label="Deaths" value={user.stats.deaths} icon={<Heart className="w-4 h-4 text-red-500" />} />
             </div>
           ) : activeTab === 'friends' ? (
-            <FriendsList user={user} token={token} playSound={playSound} roomId={roomId} onJoinRoom={onJoinRoom} />
+            <FriendsList user={user} token={token} playSound={playSound} roomId={roomId} onJoinRoom={onJoinRoom} mode={mode} />
           ) : activeTab === 'pass' ? (
             <div className="relative max-w-2xl mx-auto py-8">
               {/* Assembly Pass Banner */}
@@ -395,6 +409,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                             <div className="flex items-center justify-end gap-4">
                               <div className="text-right">
                                 <div className="text-xs text-white font-medium mb-1">{level === 30 ? '500 Cabinet Points' : item?.name || 'Reward'}</div>
+                                  {item && <div className={cn("text-[9px] font-mono uppercase mb-1", getRarity(item.price).color)}>{getRarity(item.price).name}</div>}
                                 <div className="text-[10px] text-[#666] uppercase tracking-widest">Free Tier</div>
                               </div>
                               {level === 30 ? (
@@ -546,7 +561,7 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                   return (
                     <div key={item.id} className="bg-[#141414] border border-[#222] rounded-3xl p-6 flex flex-col items-center text-center group">
                       <div className="relative w-20 h-20 mb-4">
-                        <div className="w-20 h-20 rounded-2xl bg-[#222] border border-[#333] flex items-center justify-center overflow-hidden">
+                        <div className="w-20 h-20 rounded-2xl bg-[#222] border border-[#333] flex items-center justify-center">
                           {item.type === 'frame' ? (
                             user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-[#444]" />
                           ) : item.type === 'music' || item.type === 'sound' ? (
@@ -581,7 +596,8 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
                         )}
                       </div>
                       <h4 className="font-serif italic text-lg mb-1 text-white">{item.name}</h4>
-                      <p className="text-[10px] text-[#666] font-mono uppercase mb-2">{item.type === 'policy' ? 'Directive Style' : `${item.type} Style`}</p>
+                      <p className="text-[10px] text-[#666] font-mono uppercase mb-1">{item.type === 'policy' ? 'Directive Style' : `${item.type} Style`}</p>
+                      <p className={cn("text-[9px] font-mono uppercase mb-2", getRarity(item.price).color)}>{getRarity(item.price).name}</p>
                       <p className="text-[10px] text-[#444] font-sans mb-4 line-clamp-2">{item.description}</p>
                       
                       {isOwned ? (
@@ -619,6 +635,12 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
           ) : (
             <div className="space-y-6 max-w-md mx-auto">
               <div className="flex items-center justify-between p-4 bg-[#141414] border border-[#222] rounded-2xl">
+                <span className="text-sm font-mono text-white">AI Voice Chat</span>
+                <button onClick={() => setIsAiVoiceEnabled(!isAiVoiceEnabled)} className={cn("w-12 h-6 rounded-full transition-all relative", isAiVoiceEnabled ? "bg-emerald-900" : "bg-[#333]")}>
+                  <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all", isAiVoiceEnabled ? "left-7" : "left-1")} />
+                </button>
+              </div>
+              <div className="flex items-center justify-between p-4 bg-[#141414] border border-[#222] rounded-2xl">
                 <span className="text-sm font-mono text-white">Music</span>
                 <button onClick={() => setIsMusicOn(!isMusicOn)} className={cn("w-12 h-6 rounded-full transition-all relative", isMusicOn ? "bg-red-900" : "bg-[#333]")}>
                   <div className={cn("absolute top-1 w-4 h-4 rounded-full bg-white transition-all", isMusicOn ? "left-7" : "left-1")} />
@@ -637,6 +659,17 @@ export const Profile: React.FC<ProfileProps> = ({ user, onClose, onUpdateUser, t
               <div className="p-4 bg-[#141414] border border-[#222] rounded-2xl space-y-2">
                 <span className="text-sm font-mono text-white">Sound Effects Volume</span>
                 <input type="range" min="0" max="100" value={soundVolume} onChange={(e) => setSoundVolume(parseInt(e.target.value))} className="w-full accent-red-900" />
+              </div>
+              <div className="p-4 bg-[#141414] border border-[#222] rounded-2xl space-y-2">
+                <span className="text-sm font-mono text-white">TTS Voice</span>
+                <select 
+                  value={ttsVoice} 
+                  onChange={(e) => setTtsVoice(e.target.value)}
+                  className="w-full bg-[#222] text-white p-2 rounded-xl text-sm font-mono border border-[#333]"
+                >
+                  <option value="">Default</option>
+                  {voices.map(v => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
+                </select>
               </div>
               <div className="flex items-center justify-between p-4 bg-[#141414] border border-[#222] rounded-2xl">
                 <span className="text-sm font-mono text-white">Fullscreen</span>

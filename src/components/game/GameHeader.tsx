@@ -1,6 +1,6 @@
 import React from 'react';
 import { MessageSquare, LogOut, BookOpen, Scale, Eye, Mic, MicOff, User as UserIcon } from 'lucide-react';
-import { GameState, Player, Role } from '../../types';
+import { GameState, Player, Role, PrivateInfo } from '../../types';
 import { OverseerIcon } from '../icons';
 import { getFrameStyles } from '../../lib/cosmetics';
 import { cn } from '../../lib/utils';
@@ -10,11 +10,9 @@ interface GameHeaderProps {
   me: Player | undefined;
   socketId: string | undefined;
   user: { username: string; avatarUrl?: string; activeFrame?: string } | null;
-  privateInfo: { role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null;
-  isVoiceActive: boolean;
+  privateInfo: PrivateInfo | null;
   hasNewMessages: boolean;
   tick: number; // forces re-render for timer
-  onToggleVoice: () => void;
   onOpenChat: () => void;
   onOpenHistory: () => void;
   onOpenDossier: () => void;
@@ -25,8 +23,8 @@ interface GameHeaderProps {
 
 export const GameHeader = ({
   gameState, me, socketId, user, privateInfo,
-  isVoiceActive, hasNewMessages, tick,
-  onToggleVoice, onOpenChat, onOpenHistory, onOpenDossier, onOpenProfile, onLeaveRoom,
+  hasNewMessages, tick,
+  onOpenChat, onOpenHistory, onOpenDossier, onOpenProfile, onLeaveRoom,
   playSound,
 }: GameHeaderProps) => {
   const timerRemaining = gameState.actionTimerEnd
@@ -65,21 +63,6 @@ export const GameHeader = ({
       </div>
 
       <div className="flex items-center gap-1.5 sm:gap-4">
-        {/* Voice */}
-        <button
-          onClick={onToggleVoice}
-          disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
-          className={cn(
-            'p-2 sm:p-2.5 rounded-xl border transition-all',
-            isVoiceActive
-              ? 'border-red-500 bg-red-900/20 text-red-500'
-              : 'border-[#333] bg-[#222] text-[#444] hover:text-white',
-            !me?.isAlive && gameState.phase !== 'GameOver' && 'opacity-30 grayscale cursor-not-allowed'
-          )}
-        >
-          {isVoiceActive ? <Mic className="w-3.5 h-3.5 sm:w-4 h-4" /> : <MicOff className="w-3.5 h-3.5 sm:w-4 h-4" />}
-        </button>
-
         {/* Chat */}
         <button
           onClick={() => { playSound('click'); onOpenChat(); }}

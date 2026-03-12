@@ -6,10 +6,11 @@ import { cn } from '../../../lib/utils';
 
 interface PolicyPeekModalProps {
   policies: Policy[] | null;
+  title?: string;
   onClose: () => void;
 }
 
-export const PolicyPeekModal = ({ policies, onClose }: PolicyPeekModalProps) => (
+export const PolicyPeekModal = ({ policies, title, onClose }: PolicyPeekModalProps) => (
   <AnimatePresence>
     {policies && (
       <motion.div
@@ -28,10 +29,10 @@ export const PolicyPeekModal = ({ policies, onClose }: PolicyPeekModalProps) => 
               <Eye className="w-6 h-6 text-yellow-500" />
             </div>
             <h3 className="text-[10px] uppercase tracking-[0.2em] text-[#666] font-mono">Directive Preview</h3>
-            <p className="text-lg font-serif italic text-white">Top 3 directives in the deck:</p>
+            <p className="text-lg font-serif italic text-white">{title || "Top 3 directives in the deck:"}</p>
           </div>
           <div className="flex justify-center gap-4">
-            {policies.map((p, i) => (
+            {policies.length > 0 ? policies.map((p, i) => (
               <motion.div
                 key={i}
                 initial={{ rotateY: 90, opacity: 0 }}
@@ -49,7 +50,11 @@ export const PolicyPeekModal = ({ policies, onClose }: PolicyPeekModalProps) => 
                   {p === 'Civil' ? 'Civil' : 'State'}
                 </span>
               </motion.div>
-            ))}
+            )) : (
+              <div className="text-[#444] font-mono text-xs italic py-8">
+                The pile is currently empty.
+              </div>
+            )}
           </div>
           <button
             onClick={onClose}

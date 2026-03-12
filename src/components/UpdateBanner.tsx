@@ -8,7 +8,7 @@ interface UpdateBannerProps {
 export const UpdateBanner = ({ visible }: UpdateBannerProps) => {
   if (!visible) return null;
   return (
-    <div className="fixed top-0 inset-x-0 z-[9999] flex items-center justify-between gap-4 bg-yellow-500 text-black px-4 py-2.5 shadow-lg">
+    <div className="relative z-[9999] flex items-center justify-between gap-4 bg-yellow-500 text-black px-4 py-2.5 shadow-lg">
       <div className="flex items-center gap-2 text-sm font-medium">
         <Zap className="w-4 h-4 shrink-0" />
         <span>A new version of The Assembly is available. Please refresh after this round.</span>

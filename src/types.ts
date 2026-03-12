@@ -1,8 +1,16 @@
 export type Role = 'Civil' | 'State' | 'Overseer';
 export const Role = {};
+export type TitleRole = 'Assassin' | 'Strategist' | 'Broker' | 'Handler' | 'Auditor' | 'Interdictor';
+export const TitleRole = {};
+
+export interface PrivateInfo {
+  role: Role;
+  stateAgents?: { id: string; name: string; role: Role }[];
+  titleRole?: TitleRole;
+}
 export type Policy = 'Civil' | 'State';
 export const Policy = {};
-export type GamePhase = 'Lobby' | 'Election' | 'Voting' | 'Voting_Reveal' | 'Legislative_President' | 'Legislative_Chancellor' | 'Executive_Action' | 'GameOver';
+export type GamePhase = 'Lobby' | 'Election' | 'Voting' | 'Nomination_Review' | 'Voting_Reveal' | 'Legislative_President' | 'Legislative_Chancellor' | 'Executive_Action' | 'Assassin_Action' | 'GameOver';
 export const GamePhase = {};
 export type ExecutiveAction = 'Investigate' | 'SpecialElection' | 'Execution' | 'PolicyPeek' | 'None';
 export const ExecutiveAction = {};
@@ -86,10 +94,15 @@ export interface Player {
   activeVotingStyle?: string;
   isDisconnected?: boolean;
   isReady?: boolean;
+  hasActed?: boolean; // Track if player has acted in current phase
+  titleRole?: TitleRole;
+  titleUsed?: boolean;
   // Bayesian suspicion model: log-odds that each other player is State/Overseer
   suspicion?: { [playerId: string]: number };
   // How many State directives this player has enacted as Chancellor (observable)
   stateEnactments?: number;
+  alliances?: { [playerId: string]: number };
+  difficulty?: 'Casual' | 'Normal' | 'Elite';
 }
 export const Player = {};
 
@@ -130,6 +143,9 @@ export interface GameState {
   investigationResult?: { targetName: string; role: Role };
   lastEnactedPolicy?: { type: Policy; timestamp: number; playerId?: string; historyCaptured?: boolean };
   round: number;
+  presidentialOrder?: string[];
+  rejectedChancellorId?: string;
+  detainedPlayerId?: string;
   vetoUnlocked: boolean;
   vetoRequested: boolean;
   previousVotes?: { [playerId: string]: 'Aye' | 'Nay' };
@@ -151,6 +167,12 @@ export interface GameState {
   pauseReason?: string;
   pauseTimer?: number;
   disconnectedPlayerId?: string;
+  titlePrompt?: {
+    playerId: string;
+    role: TitleRole;
+    context?: any;
+    nextPhase?: GamePhase;
+  };
   // Used by the Bayesian suspicion model: stores who voted how for the most
   // recently-formed government, and who was in it, so suspicion can be updated
   // once the enacted policy type is known (6s later during the animation).
@@ -190,6 +212,7 @@ export interface ServerToClientEvents {
   friendRequestAccepted: (data: { fromUserId: string }) => void;
   userStatusChanged: (data: { userId: string; isOnline: boolean; roomId?: string }) => void;
   friendInvite: (data: { fromUserId: string; fromUsername: string; roomId: string }) => void;
+  powerUsed: (data: { role: string }) => void;
 }
 
 export interface ClientToServerEvents {
@@ -205,6 +228,7 @@ export interface ClientToServerEvents {
   presidentDiscard: (policyIdx: number) => void;
   chancellorPlay: (policyIdx: number) => void;
   performExecutiveAction: (targetId: string) => void;
+  useTitleAbility: (abilityData: any) => void;
   sendMessage: (message: string) => void;
   declarePolicies: (data: { civ: number; sta: number; drewCiv?: number; drewSta?: number; type: 'President' | 'Chancellor' } | null) => void;
   vetoRequest: () => void;

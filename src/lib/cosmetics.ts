@@ -62,3 +62,11 @@ export const getBackgroundTexture = (id: string | undefined) => {
     default: return 'https://www.transparenttextures.com/patterns/carbon-fibre.png';
   }
 };
+
+export const getRarity = (price: number) => {
+  if (price === 0) return { name: 'Common', color: 'text-gray-500' };
+  if (price < 1000) return { name: 'Uncommon', color: 'text-emerald-500' };
+  if (price < 2000) return { name: 'Rare', color: 'text-blue-500' };
+  if (price < 3500) return { name: 'Epic', color: 'text-purple-500' };
+  return { name: 'Legendary', color: 'text-yellow-500' };
+};

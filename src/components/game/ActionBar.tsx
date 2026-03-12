@@ -1,5 +1,5 @@
 import React from 'react';
-import { Scroll, Scale, Eye } from 'lucide-react';
+import { Scroll, Scale, Eye, Mic, Video, VideoOff, MicOff } from 'lucide-react';
 import { socket } from '../../socket';
 import { GameState, Player, User } from '../../types';
 import { getPolicyStyles, getVoteStyles } from '../../lib/cosmetics';
@@ -9,15 +9,23 @@ interface ActionBarProps {
   gameState: GameState;
   me: Player | undefined;
   user: User | null;
+  showDebug: boolean;
   onOpenLog: () => void;
   onPlayAgain: () => void;
   onLeaveRoom: () => void;
   playSound: (key: string) => void;
+  isVoiceActive: boolean;
+  setIsVoiceActive: (active: boolean) => void;
+  isVideoActive: boolean;
+  setIsVideoActive: (active: boolean) => void;
 }
 
-export const ActionBar = ({ gameState, me, user, onOpenLog, onPlayAgain, onLeaveRoom, playSound }: ActionBarProps) => {
+export const ActionBar = ({ gameState, me, user, showDebug, onOpenLog, onPlayAgain, onLeaveRoom, playSound, isVoiceActive, setIsVoiceActive, isVideoActive, setIsVideoActive }: ActionBarProps) => {
   const isPresident = me?.isPresident;
   const isChancellor = me?.isChancellor;
+
+  const filteredLog = showDebug ? gameState.log : gameState.log.filter(entry => !entry.includes('DEBUG:'));
+  const lastEntry = filteredLog[filteredLog.length - 1];
 
   const phaseLabel = () => {
     switch (gameState.phase) {
@@ -28,7 +36,9 @@ export const ActionBar = ({ gameState, me, user, onOpenLog, onPlayAgain, onLeave
       case 'Legislative_President': return 'President is reviewing directives.';
       case 'Legislative_Chancellor': return 'Chancellor is enacting a directive.';
       case 'Executive_Action': return `Executive Action: ${gameState.currentExecutiveAction}`;
+      case 'Assassin_Action': return 'Assassin is choosing a target.';
       case 'GameOver': return `${gameState.winner === 'Civil' ? 'Civil' : 'State'} faction victorious!`;
+      case 'Nomination_Review': return 'A Broker is reviewing the nomination.';
       default: return '';
     }
   };
@@ -36,9 +46,25 @@ export const ActionBar = ({ gameState, me, user, onOpenLog, onPlayAgain, onLeave
   return (
     <div className="shrink-0 bg-[#1a1a1a] border-t border-[#222] flex flex-col">
       {/* Phase status */}
-      <div className="px-4 py-3 bg-white/5 border-b border-[#222]">
-        <div className="text-[9px] uppercase tracking-[0.2em] text-[#666] font-mono mb-1">Current Phase</div>
-        <div className="text-xs font-serif italic text-white">{phaseLabel()}</div>
+      <div className="px-4 py-3 bg-white/5 border-b border-[#222] flex justify-between items-center">
+        <div>
+          <div className="text-[9px] uppercase tracking-[0.2em] text-[#666] font-mono mb-1">Current Phase</div>
+          <div className="text-xs font-serif italic text-white">{phaseLabel()}</div>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => { playSound('click'); setIsVoiceActive(!isVoiceActive); }}
+            className={cn("p-2 rounded-full transition-colors", isVoiceActive ? "bg-red-900/40 text-red-500" : "bg-[#222] text-[#666]")}
+          >
+            {isVoiceActive ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
+          </button>
+          <button
+            onClick={() => { playSound('click'); setIsVideoActive(!isVideoActive); }}
+            className={cn("p-2 rounded-full transition-colors", isVideoActive ? "bg-red-900/40 text-red-500" : "bg-[#222] text-[#666]")}
+          >
+            {isVideoActive ? <Video className="w-4 h-4" /> : <VideoOff className="w-4 h-4" />}
+          </button>
+        </div>
       </div>
 
       {/* Action area - fixed height to prevent layout shift */}
@@ -46,20 +72,28 @@ export const ActionBar = ({ gameState, me, user, onOpenLog, onPlayAgain, onLeave
         {/* Voting */}
         {gameState.phase === 'Voting' && me?.isAlive && !me.vote && (
           <div className="flex gap-3 sm:gap-4 w-full justify-center h-full items-center">
-            <button
-              onClick={() => { socket.emit('vote', 'Aye'); playSound('click'); }}
-              className={cn('flex-1 h-20 sm:h-24 rounded-xl border-2 sm:border-4 flex flex-col items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-lg', getVoteStyles(user?.activeVotingStyle, 'Aye'))}
-            >
-              <span className="text-2xl sm:text-3xl font-thematic uppercase leading-none">AYE!</span>
-              <span className="text-[8px] sm:text-[10px] font-mono uppercase tracking-widest opacity-60">(YES)</span>
-            </button>
-            <button
-              onClick={() => { socket.emit('vote', 'Nay'); playSound('defeat'); }}
-              className={cn('flex-1 h-20 sm:h-24 rounded-xl border-2 sm:border-4 flex flex-col items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-lg', getVoteStyles(user?.activeVotingStyle, 'Nay'))}
-            >
-              <span className="text-2xl sm:text-3xl font-thematic uppercase leading-none">NAY!</span>
-              <span className="text-[8px] sm:text-[10px] font-mono uppercase tracking-widest opacity-60">(NO)</span>
-            </button>
+            {gameState.detainedPlayerId === me.id ? (
+              <div className="text-purple-400 font-mono text-[10px] uppercase tracking-widest text-center animate-pulse">
+                You are detained and cannot vote this round
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => { socket.emit('vote', 'Aye'); playSound('click'); }}
+                  className={cn('flex-1 h-20 sm:h-24 rounded-xl border-2 sm:border-4 flex flex-col items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-lg', getVoteStyles(user?.activeVotingStyle, 'Aye'))}
+                >
+                  <span className="text-2xl sm:text-3xl font-thematic uppercase leading-none">AYE!</span>
+                  <span className="text-[8px] sm:text-[10px] font-mono uppercase tracking-widest opacity-60">(YES)</span>
+                </button>
+                <button
+                  onClick={() => { socket.emit('vote', 'Nay'); playSound('defeat'); }}
+                  className={cn('flex-1 h-20 sm:h-24 rounded-xl border-2 sm:border-4 flex flex-col items-center justify-center transition-all hover:scale-[1.02] active:scale-95 shadow-lg', getVoteStyles(user?.activeVotingStyle, 'Nay'))}
+                >
+                  <span className="text-2xl sm:text-3xl font-thematic uppercase leading-none">NAY!</span>
+                  <span className="text-[8px] sm:text-[10px] font-mono uppercase tracking-widest opacity-60">(NO)</span>
+                </button>
+              </>
+            )}
           </div>
         )}
 
@@ -143,7 +177,7 @@ export const ActionBar = ({ gameState, me, user, onOpenLog, onPlayAgain, onLeave
       >
         <Scroll className="w-4 h-4 text-white group-hover:text-red-500 transition-colors" />
         <div className="flex-1 text-[11px] text-[#666] truncate text-left italic">
-          {gameState.log[gameState.log.length - 1]}
+          {lastEntry}
         </div>
         <div className="text-[9px] uppercase tracking-widest text-[#444] font-mono">Log</div>
       </button>

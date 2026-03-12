@@ -7,9 +7,11 @@ interface AssemblyLogProps {
   log: string[];
   isOpen: boolean;
   onClose: () => void;
+  showDebug: boolean;
 }
 
 const getLogColor = (entry: string) => {
+  if (entry.includes('DEBUG:')) return 'text-purple-400 border-purple-500';
   if (entry.includes('Civil') || entry.includes('Charter') || entry.includes('passed')) return 'text-blue-400 border-blue-900/30';
   if (entry.includes('State') || entry.includes('Overseer') || entry.includes('Supremacy') || entry.includes('failed')) return 'text-red-500 border-red-900/30';
   if (entry.includes('executed') || entry.includes('killed') || entry.includes('Eliminated')) return 'text-red-600 font-bold border-red-900/50';
@@ -18,7 +20,7 @@ const getLogColor = (entry: string) => {
   return 'text-[#aaa] border-[#333]';
 };
 
-export const AssemblyLog = ({ log, isOpen, onClose }: AssemblyLogProps) => {
+export const AssemblyLog = ({ log, isOpen, onClose, showDebug }: AssemblyLogProps) => {
   const logEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -48,7 +50,7 @@ export const AssemblyLog = ({ log, isOpen, onClose }: AssemblyLogProps) => {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar overscroll-contain bg-[#141414]">
-            {log.map((entry, i) => {
+            {log.filter(entry => showDebug || !entry.includes('DEBUG:')).map((entry, i) => {
               if (entry.startsWith('--- Round')) {
                 return (
                   <div key={i} className="w-full py-6 flex items-center justify-center">
@@ -77,7 +79,7 @@ export const AssemblyLog = ({ log, isOpen, onClose }: AssemblyLogProps) => {
                     <div className="text-[8px] font-mono opacity-30 uppercase tracking-widest">Event #{i + 1}</div>
                     <div className="h-[1px] flex-1 bg-white/5" />
                   </div>
-                  <div className="font-medium tracking-wide text-[#aaa]">{entry}</div>
+                  <div className="font-medium tracking-wide text-inherit">{entry}</div>
                 </div>
               );
             })}

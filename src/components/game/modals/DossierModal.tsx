@@ -1,15 +1,24 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { X, Eye, Scale } from 'lucide-react';
-import { Role } from '../../../types';
+import { Role, PrivateInfo, TitleRole } from '../../../types';
 import { OverseerIcon } from '../../icons';
 import { cn } from '../../../lib/utils';
 
 interface DossierModalProps {
   isOpen: boolean;
   onClose: () => void;
-  privateInfo: { role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null;
+  privateInfo: PrivateInfo | null;
 }
+
+const TITLE_ROLE_DESCRIPTIONS: Record<TitleRole, string> = {
+  Assassin: "Eliminate a player from the game.",
+  Strategist: "Draw an extra policy (4 total) when you are President.",
+  Broker: "Force a re-nomination if the current one is unfavorable.",
+  Handler: "Swap the next two players in the presidential order.",
+  Auditor: "Inspect the discarded policies.",
+  Interdictor: "Detain a player for one round, preventing them from being nominated or voting.",
+};
 
 export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps) => (
   <AnimatePresence>
@@ -55,6 +64,20 @@ export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps
                       : privateInfo.role === 'Overseer'
                         ? 'Ascend to the Chancellorship. State Supremacy awaits.'
                         : 'Enact State directives. Elevate the Overseer to power.'}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="text-[10px] uppercase tracking-widest text-[#666] border-b border-[#222] pb-2">Title Role</div>
+                  <div className="bg-[#222] p-4 rounded-xl">
+                    {privateInfo.titleRole ? (
+                      <div className="space-y-1">
+                        <div className="text-sm font-bold text-white uppercase tracking-wider">{privateInfo.titleRole}</div>
+                        <div className="text-[10px] text-[#888]">{TITLE_ROLE_DESCRIPTIONS[privateInfo.titleRole]}</div>
+                      </div>
+                    ) : (
+                      <div className="text-sm text-[#666] italic">No title role assigned.</div>
+                    )}
                   </div>
                 </div>
 

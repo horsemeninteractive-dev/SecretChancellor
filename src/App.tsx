@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { GoogleGenAI, Modality } from "@google/genai";
 import { socket } from './socket';
-import { GameState, Role, User } from './types';
+import { GameState, Role, User, PrivateInfo } from './types';
 import { motion } from 'motion/react';
 import { Auth } from './components/Auth';
 import { Lobby } from './components/Lobby';
@@ -12,7 +13,7 @@ import { MUSIC_TRACKS, SOUND_PACKS } from './lib/audio';
 import { discordSdk, setupDiscordSdk } from './lib/discord';
 import { cn } from './lib/utils';
 
-const CLIENT_VERSION = 'v0.8.9';
+const CLIENT_VERSION = 'v0.9.0';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
@@ -21,7 +22,7 @@ export default function App() {
   const [joined, setJoined] = useState(false);
   const [isInteracted, setIsInteracted] = useState(false);
   const [gameState, setGameState] = useState<GameState | null>(null);
-  const [privateInfo, setPrivateInfo] = useState<{ role: Role; stateAgents?: { id: string; name: string; role: Role }[] } | null>(null);
+  const [privateInfo, setPrivateInfo] = useState<PrivateInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -80,6 +81,8 @@ export default function App() {
   const [musicVolume, setMusicVolume] = useState(() => parseInt(localStorage.getItem('musicVolume') || '50'));
   const [soundVolume, setSoundVolume] = useState(() => parseInt(localStorage.getItem('soundVolume') || '50'));
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [ttsVoice, setTtsVoice] = useState<string>(localStorage.getItem('ttsVoice') || '');
+  const [isAiVoiceEnabled, setIsAiVoiceEnabled] = useState(() => localStorage.getItem('isAiVoiceEnabled') !== 'false');
   const musicAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Persist settings
@@ -88,7 +91,27 @@ export default function App() {
     localStorage.setItem('isSoundOn', String(isSoundOn));
     localStorage.setItem('musicVolume', String(musicVolume));
     localStorage.setItem('soundVolume', String(soundVolume));
-  }, [isMusicOn, isSoundOn, musicVolume, soundVolume]);
+    localStorage.setItem('ttsVoice', ttsVoice);
+    localStorage.setItem('isAiVoiceEnabled', String(isAiVoiceEnabled));
+  }, [isMusicOn, isSoundOn, musicVolume, soundVolume, ttsVoice, isAiVoiceEnabled]);
+
+  // Power Used TTS
+  useEffect(() => {
+    socket.on('powerUsed', (data: { role: string }) => {
+      if (!isSoundOn) return;
+
+      const utterance = new SpeechSynthesisUtterance(`${data.role} power used`);
+      utterance.volume = soundVolume / 100;
+      const voices = window.speechSynthesis.getVoices();
+      const voice = voices.find(v => v.name === ttsVoice);
+      if (voice) utterance.voice = voice;
+      window.speechSynthesis.speak(utterance);
+    });
+
+    return () => {
+      socket.off('powerUsed');
+    };
+  }, [isSoundOn, soundVolume, ttsVoice]);
 
   // Background Music Logic
   useEffect(() => {
@@ -259,7 +282,7 @@ export default function App() {
   };
 
   return (
-    <div className={cn("min-h-screen bg-[#0a0a0a]", isDiscord ? "pt-12" : "")}>
+    <div className={cn("h-screen bg-[#0a0a0a] flex flex-col", isDiscord ? "pt-12" : "")}>
       <UpdateBanner visible={updateAvailable} />
 
       {error && (
@@ -273,7 +296,7 @@ export default function App() {
       ) : !token || !user ? (
         <Auth onAuthSuccess={handleAuthSuccess} />
       ) : !isInteracted && !document.fullscreenElement ? (
-        <div className="min-h-screen bg-texture flex items-center justify-center p-4">
+        <div className="flex-1 w-full bg-texture flex items-center justify-center p-4">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -320,7 +343,9 @@ export default function App() {
                 isSoundOn, setIsSoundOn,
                 musicVolume, setMusicVolume,
                 soundVolume, setSoundVolume,
-                isFullscreen, setIsFullscreen
+                isFullscreen, setIsFullscreen,
+                ttsVoice, setTtsVoice,
+                isAiVoiceEnabled, setIsAiVoiceEnabled
               }}
               onJoinRoom={(roomId) => { setIsProfileOpen(false); handleJoinRoom(roomId); }}
             />
@@ -351,6 +376,8 @@ export default function App() {
             updateAvailable={updateAvailable}
             playSound={playSound}
             soundVolume={soundVolume}
+            ttsVoice={ttsVoice}
+            isAiVoiceEnabled={isAiVoiceEnabled}
           />
           {isProfileOpen && (
             <Profile 
@@ -366,9 +393,12 @@ export default function App() {
                 isSoundOn, setIsSoundOn,
                 musicVolume, setMusicVolume,
                 soundVolume, setSoundVolume,
-                isFullscreen, setIsFullscreen
+                isFullscreen, setIsFullscreen,
+                ttsVoice, setTtsVoice,
+                isAiVoiceEnabled, setIsAiVoiceEnabled
               }}
               roomId={gameState?.roomId}
+              mode={gameState?.mode}
               onJoinRoom={(roomId) => { setIsProfileOpen(false); handleLeaveRoom(); setTimeout(() => handleJoinRoom(roomId), 100); }}
             />
           )}

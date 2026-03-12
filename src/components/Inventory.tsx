@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { cn } from '../lib/utils';
 import { CosmeticItem, User } from '../types';
 import { Play, Pause, User as UserIcon, Scroll } from 'lucide-react';
-import { getPolicyStyles, getVoteStyles, getFrameStyles } from '../lib/cosmetics';
+import { getPolicyStyles, getVoteStyles, getFrameStyles, getRarity } from '../lib/cosmetics';
 import { DEFAULT_ITEMS, PASS_ITEM_LEVELS } from '../constants';
 
 interface InventoryProps {
@@ -93,13 +93,19 @@ export const Inventory: React.FC<InventoryProps> = ({ user, handleEquip, playSou
 
           return (
             <div key={item.id} className="bg-[#141414] border border-[#222] rounded-3xl p-6 flex flex-col items-center text-center">
-              <div className="w-20 h-20 rounded-2xl bg-[#222] border border-[#333] mb-4 flex items-center justify-center overflow-hidden">
+              <div className="relative w-20 h-20 rounded-2xl bg-[#222] border border-[#333] mb-4 flex items-center justify-center">
                   {item.type === 'music' ? (
                       <button onClick={() => playPreview(item)} className="w-full h-full flex items-center justify-center">
                           {playingItemId === item.id ? <Pause className="w-8 h-8 text-white" /> : <Play className="w-8 h-8 text-white" />}
                       </button>
                   ) : item.type === 'frame' ? (
-                      user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-[#444]" />
+                      <>
+                        {user.avatarUrl ? <img src={user.avatarUrl} alt={user.username} className="w-full h-full object-cover" /> : <UserIcon className="w-10 h-10 text-[#444]" />}
+                        <div className={cn(
+                          "absolute inset-0 border-4 rounded-2xl pointer-events-none",
+                          getFrameStyles(item.id)
+                        )} />
+                      </>
                   ) : item.type === 'policy' ? (
                       <div className={cn("w-full h-full flex flex-col items-center justify-center gap-1", getPolicyStyles(item.id, 'Civil'))}>
                           <Scroll className="w-8 h-8" />
@@ -116,7 +122,8 @@ export const Inventory: React.FC<InventoryProps> = ({ user, handleEquip, playSou
                   )}
               </div>
               <h4 className="font-serif italic text-lg mb-1 text-white">{item.name}</h4>
-              <p className="text-[10px] text-[#666] font-mono uppercase mb-4">{item.type === 'policy' ? 'Directive Style' : item.type}</p>
+              <p className="text-[10px] text-[#666] font-mono uppercase mb-1">{item.type === 'policy' ? 'Directive Style' : item.type}</p>
+              <p className={cn("text-[9px] font-mono uppercase mb-4", getRarity(item.price).color)}>{getRarity(item.price).name}</p>
               <button 
                 onClick={() => {
                   playSound('click');

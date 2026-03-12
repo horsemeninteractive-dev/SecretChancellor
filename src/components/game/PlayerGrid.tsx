@@ -1,10 +1,20 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { motion } from 'motion/react';
 import { Users, Eye, Check } from 'lucide-react';
 import { socket } from '../../socket';
 import { GameState, Player } from '../../types';
 import { getFrameStyles, getVoteStyles } from '../../lib/cosmetics';
 import { cn } from '../../lib/utils';
+
+const VideoPlayer = React.memo(({ stream, isMe }: { stream: MediaStream, isMe: boolean }) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+  return <video ref={videoRef} autoPlay playsInline muted={isMe} className="absolute inset-0 w-full h-full object-cover rounded-xl" />;
+});
 
 interface PlayerGridProps {
   gameState: GameState;
@@ -14,9 +24,12 @@ interface PlayerGridProps {
   token: string;
   selectedPlayerId: string | null;
   setSelectedPlayerId: (id: string | null) => void;
+  localStream: MediaStream | null;
+  remoteStreams: Record<string, MediaStream>;
+  isVideoActive: boolean;
 }
 
-export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, selectedPlayerId, setSelectedPlayerId }: PlayerGridProps) => {
+export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, selectedPlayerId, setSelectedPlayerId, localStream, remoteStreams, isVideoActive }: PlayerGridProps) => {
   const isPresidentialCandidate = me?.isPresidentialCandidate;
   const isPresident = me?.isPresident;
   const isManyPlayers = gameState.players.length > 6;
@@ -29,11 +42,17 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
         gameState.players.length <= 8 ? 'grid-rows-4' : 'grid-rows-5',
         'sm:grid-cols-5 sm:grid-rows-2'
       )}>
-        {gameState.players.map(p => {
+        {gameState.players.map((p, index) => {
+          if (!p) return null;
           const prevVote = gameState.previousVotes?.[p.id];
+          const isMe = p.id === socket.id;
+          const stream = isMe ? (isVideoActive ? localStream : null) : remoteStreams[p.id];
+          
           return (
-            <div
+            <motion.div
               key={p.id}
+              animate={{ scale: speakingPlayers[p.id] ? 1.05 : 1 }}
+              transition={{ duration: 0.2 }}
               onClick={(e) => { 
                 e.stopPropagation();
                 playSound('click'); 
@@ -42,7 +61,7 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                 }
               }}
               className={cn(
-                'relative p-1 sm:p-4 rounded-xl border transition-all duration-300 flex flex-col items-center justify-center min-h-0 overflow-hidden cursor-pointer',
+                'relative p-1 sm:p-4 rounded-xl border transition-all duration-300 flex flex-col items-center justify-center min-h-0 cursor-pointer',
                 p.isAlive ? 'bg-[#1a1a1a]/80 backdrop-blur-sm border-[#222]' : 'bg-[#111]/50 border-transparent opacity-50 grayscale',
                 p.isPresidentialCandidate && 'border-yellow-500/50 ring-1 ring-yellow-500/20',
                 p.isChancellorCandidate && 'border-blue-500/50 ring-1 ring-blue-500/20',
@@ -56,16 +75,29 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
 
               <motion.div
                 animate={{ rotateY: prevVote ? 180 : 0 }}
-                transition={{ duration: 0.6, type: 'spring', stiffness: 260, damping: 20 }}
+                transition={{ 
+                  duration: 0.6, 
+                  type: 'spring', 
+                  stiffness: 260, 
+                  damping: 20,
+                  delay: gameState.phase === 'Voting_Reveal' ? index * 0.2 : 0 
+                }}
                 className="w-full h-full relative preserve-3d"
               >
                 {/* Front: Player info */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center backface-hidden">
+                  {stream && isVideoActive && <VideoPlayer stream={stream} isMe={isMe} />}
+                  
                   <div className={cn(
-                    'flex flex-col items-center text-center min-h-0 overflow-hidden',
-                    isManyPlayers ? 'gap-0.5' : 'gap-1 sm:gap-2'
+                    'flex min-h-0 overflow-hidden z-10 w-full h-full',
+                    stream && isVideoActive 
+                      ? 'flex-row justify-between items-end p-2' 
+                      : 'flex-col items-center justify-center text-center'
                   )}>
-                    <div className="relative shrink-0 p-1">
+                    <div className={cn(
+                      'relative shrink-0 p-1',
+                      stream && isVideoActive && 'hidden'
+                    )}>
                       <div className={cn(
                         'bg-[#222] flex items-center justify-center relative overflow-hidden',
                         !p.activeFrame && 'border border-[#333]',
@@ -118,15 +150,21 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                     </div>
 
                     <div className={cn(
-                      'font-thematic tracking-wide truncate w-full px-1 leading-tight',
-                      isManyPlayers ? 'text-[9px] sm:text-[16px]' : 'text-[11px] sm:text-[16px]',
+                      'font-thematic tracking-wide truncate px-1 leading-tight',
+                      stream && isVideoActive ? 'text-[10px] sm:text-[14px] bg-black/50 rounded px-1' : 'text-[11px] sm:text-[16px]',
                       p.isAlive ? 'text-white/90' : 'text-[#444]'
                     )}>
                       {p.name} {p.id === socket.id && '(You)'}
                     </div>
 
-                    {/* Desktop badges */}
-                    <div className="hidden sm:flex flex-wrap justify-center gap-1 shrink-0">
+                    {/* Badges */}
+                    <div className={cn(
+                      'flex flex-wrap gap-1 shrink-0',
+                      stream && isVideoActive ? 'justify-end' : 'justify-center hidden sm:flex'
+                    )}>
+                      {gameState.detainedPlayerId === p.id && (
+                        <span className="px-2 py-0.5 bg-purple-900/40 text-purple-500 font-mono uppercase rounded border border-purple-900/50 text-[9px]">Detained</span>
+                      )}
                       {(p.isPresident || p.isPresidentialCandidate) && (
                         <span className="px-2 py-0.5 bg-yellow-900/40 text-yellow-500 font-mono uppercase rounded border border-yellow-900/50 text-[9px]">
                           {p.isPresident ? 'President' : 'Candidate'}
@@ -142,9 +180,12 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                       )}
                     </div>
 
-                    {/* Mobile dead badge */}
+                    {/* Mobile dead/detained badge */}
                     {!p.isAlive && (
-                      <span className="sm:hidden px-1 py-0.5 bg-red-900/20 text-red-500 font-mono uppercase rounded text-[6px]">Dead</span>
+                      <span className={cn("sm:hidden px-1 py-0.5 bg-red-900/20 text-red-500 font-mono uppercase rounded text-[6px]", stream && isVideoActive && 'hidden')}>Dead</span>
+                    )}
+                    {gameState.detainedPlayerId === p.id && (
+                      <span className={cn("sm:hidden px-1 py-0.5 bg-purple-900/20 text-purple-500 font-mono uppercase rounded text-[6px]", stream && isVideoActive && 'hidden')}>Detained</span>
                     )}
                   </div>
                 </div>
@@ -167,7 +208,12 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
               {/* Nominate overlay */}
               {gameState.phase === 'Election' && isPresidentialCandidate && p.id !== socket.id && p.isAlive && (() => {
                 const aliveCount = gameState.players.filter(pl => pl.isAlive).length;
-                const isEligible = !p.wasChancellor && !(aliveCount > 5 && p.wasPresident);
+                const isEligible = !p.wasChancellor && !(aliveCount > 5 && p.wasPresident) && p.id !== gameState.detainedPlayerId && p.id !== gameState.rejectedChancellorId;
+                if (p.id === gameState.rejectedChancellorId) {
+                  console.log(`DEBUG: Player ${p.name} (id: ${p.id}) is rejected chancellor (id: ${gameState.rejectedChancellorId}), isEligible: ${isEligible}`);
+                } else if (gameState.rejectedChancellorId) {
+                  console.log(`DEBUG: Player ${p.name} (id: ${p.id}) is NOT rejected chancellor (id: ${gameState.rejectedChancellorId}), isEligible: ${isEligible}`);
+                }
                 if (!isEligible) return null;
                 return (
                   <button
@@ -179,6 +225,16 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                 );
               })()}
 
+              {/* Assassin action overlay */}
+              {gameState.phase === 'Assassin_Action' && gameState.titlePrompt?.playerId === socket.id && p.id !== socket.id && p.isAlive && (
+                <button
+                  onClick={() => { playSound('click'); socket.emit('useTitleAbility', { use: true, targetId: p.id }); }}
+                  className="absolute inset-0 bg-red-900/80 rounded-xl flex items-center justify-center font-serif italic text-white text-[9px] text-center px-1"
+                >
+                  Execute
+                </button>
+              )}
+
               {/* Executive action overlay */}
               {gameState.phase === 'Executive_Action' && isPresident && p.id !== socket.id && p.isAlive && (
                 <button
@@ -188,7 +244,7 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                   {gameState.currentExecutiveAction}
                 </button>
               )}
-            </div>
+            </motion.div>
           );
         })}
       </div>

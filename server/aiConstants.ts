@@ -61,15 +61,16 @@ export const CHAT = {
   ],
   // After investigation — Civil result
   investigateCivil: [
-    "The investigation confirms their alignment. Civil.",
+    "The investigation confirms their alignment, {name} is Civil.",
     "Nothing of concern found. They are Charter-loyal.",
     "They appear to stand with the Assembly.",
   ],
   // After investigation — State result
   investigateState: [
-    "The investigation is… troubling. Watch them closely.",
-    "I have learned something critical. Proceed with caution.",
-    "Their allegiance is not to the Charter.",
+    "The investigation confirms their alignment, {name} is State.",
+    "The investigation is… troubling. Watch {name} closely.",
+    "I have learned something critical about {name}. Proceed with caution.",
+    "{name}'s allegiance is not to the Charter.",
   ],
   // Suspicious nomination comment (Civil AI)
   suspiciousNominee: [

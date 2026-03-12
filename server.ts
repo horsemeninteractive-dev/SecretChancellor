@@ -190,9 +190,19 @@ async function startServer() {
       state.log.push(`${player.name} is ${player.isReady ? "Ready" : "Not Ready"}.`);
 
       const humanPlayers = state.players.filter(p => !p.isAI);
+      if (state.mode === 'Ranked' && humanPlayers.length < 5) {
+        state.log.push("Need at least 5 players to ready up.");
+        engine.broadcastState(roomId);
+        return;
+      }
+
       if (humanPlayers.every(p => p.isReady) && humanPlayers.length >= 1) {
         state.log.push("All human players ready! Starting game...");
-        engine.fillWithAI(roomId);
+        if (state.mode === 'Ranked') {
+          engine.startGame(roomId);
+        } else {
+          engine.fillWithAI(roomId);
+        }
       }
 
       engine.broadcastState(roomId);
@@ -235,10 +245,21 @@ async function startServer() {
       if (!state || state.phase !== "Election") return;
 
       const president = state.players[state.presidentIdx];
-      if (president.id !== socket.id) return;
+      if (president.id !== socket.id || !president.isAlive || president.hasActed) return;
+      president.hasActed = true;
 
       const chancellor = state.players.find(p => p.id === chancellorId);
       if (!chancellor || !chancellor.isAlive || chancellor.id === president.id) return;
+
+      if (state.rejectedChancellorId === chancellor.id) {
+        socket.emit("error", "This player was rejected by the Broker and cannot be nominated again this round.");
+        return;
+      }
+
+      if (state.detainedPlayerId === chancellor.id) {
+        socket.emit("error", "This player is detained by the Interdictor and cannot be nominated.");
+        return;
+      }
 
       const aliveCount = state.players.filter(p => p.isAlive).length;
       if (chancellor.wasChancellor || (aliveCount > 5 && chancellor.wasPresident)) {
@@ -247,10 +268,26 @@ async function startServer() {
       }
 
       chancellor.isChancellorCandidate = true;
-      state.phase = "Voting";
+      engine.resetPlayerActions(state);
+      
+      const broker = state.players.find(p => p.titleRole === 'Broker' && !p.titleUsed);
+
+      if (broker) {
+        state.titlePrompt = {
+          playerId: broker.id,
+          role: 'Broker',
+          context: {},
+          nextPhase: 'Voting'
+        };
+        state.phase = 'Nomination_Review';
+      } else {
+        state.phase = "Voting";
+      }
+      
       engine.startActionTimer(roomId);
       state.log.push(`${president.name} nominated ${chancellor.name} for Chancellor.`);
       engine.broadcastState(roomId);
+      engine.processAITurns(roomId);
     });
 
     socket.on("vote", (vote) => {
@@ -260,11 +297,17 @@ async function startServer() {
       if (!state || state.phase !== "Voting") return;
 
       const player = state.players.find(p => p.id === socket.id);
-      if (!player || !player.isAlive) return;
+      if (!player || !player.isAlive || player.hasActed) return;
 
+      if (state.detainedPlayerId === player.id) {
+        socket.emit("error", "You are detained by the Interdictor and cannot vote this round.");
+        return;
+      }
+
+      player.hasActed = true;
       player.vote = vote;
 
-      if (state.players.filter(p => p.isAlive && !p.vote).length === 0) {
+      if (state.players.filter(p => p.isAlive && p.id !== state.detainedPlayerId && !p.vote).length === 0) {
         const jaVotes = state.players.filter(p => p.vote === "Aye").length;
         const neinVotes = state.players.filter(p => p.vote === "Nay").length;
         engine.handleVoteResult(state, roomId, jaVotes, neinVotes);
@@ -280,6 +323,9 @@ async function startServer() {
       const state = engine.rooms.get(roomId);
       if (!state || state.phase !== "Legislative_President") return;
       if (state.presidentId !== socket.id) return;
+      const player = state.players.find(p => p.id === socket.id);
+      if (!player || !player.isAlive || player.hasActed) return;
+      player.hasActed = true;
       // Guard: timer may have already auto-discarded and cleared the hand
       if (state.drawnPolicies.length === 0) return;
 
@@ -287,6 +333,15 @@ async function startServer() {
       const discarded = state.drawnPolicies.splice(idx, 1)[0];
       if (!discarded) return;
       state.discard.push(discarded);
+      engine.checkAuditorTrigger(state);
+
+      if (state.drawnPolicies.length > 2) {
+        // Still more to discard (Strategist case)
+        player.hasActed = false; // Allow another discard
+        engine.broadcastState(roomId);
+        return;
+      }
+
       state.chancellorPolicies = [...state.drawnPolicies];
       state.chancellorSaw = [...state.chancellorPolicies];
       state.drawnPolicies = [];
@@ -302,14 +357,17 @@ async function startServer() {
       const state = engine.rooms.get(roomId);
       if (!state || state.phase !== "Legislative_Chancellor") return;
       if (state.chancellorId !== socket.id) return;
+      const player = state.players.find(p => p.id === socket.id);
+      if (!player || !player.isAlive || player.hasActed) return;
+      player.hasActed = true;
       // Guard: timer may have already auto-played and cleared the hand
       if (state.chancellorPolicies.length === 0) return;
 
       const played = state.chancellorPolicies.splice(idx, 1)[0];
       // Guard: splice on a partially-cleared array can return undefined
       if (!played) return;
-      const discarded = state.chancellorPolicies[0];
-      state.discard.push(discarded);
+      state.discard.push(...state.chancellorPolicies);
+      engine.checkAuditorTrigger(state);
       state.chancellorPolicies = [];
       engine.triggerPolicyEnactment(state, roomId, played, false, state.chancellorId);
       // Do NOT restart the timer here — phase stays Legislative_Chancellor during
@@ -360,7 +418,18 @@ async function startServer() {
       const state = engine.rooms.get(roomId);
       if (!state || state.phase !== "Executive_Action") return;
       if (state.presidentId !== socket.id) return;
+      const player = state.players.find(p => p.id === socket.id);
+      if (!player || !player.isAlive || player.hasActed) return;
+      player.hasActed = true;
       await engine.handleExecutiveAction(state, roomId, targetId);
+    });
+
+    socket.on("useTitleAbility", (abilityData) => {
+      const roomId = getRoom();
+      if (!roomId) return;
+      const state = engine.rooms.get(roomId);
+      if (!state || !state.titlePrompt || state.titlePrompt.playerId !== socket.id) return;
+      engine.handleTitleAbility(state, roomId, abilityData);
     });
 
     socket.on("vetoRequest", () => {
@@ -370,7 +439,8 @@ async function startServer() {
       if (!state || state.phase !== "Legislative_Chancellor") return;
 
       const player = state.players.find(p => p.id === socket.id);
-      if (!player || !player.isChancellor) return;
+      if (!player || !player.isChancellor || !player.isAlive || player.hasActed) return;
+      player.hasActed = true;
 
       if (state.vetoUnlocked) {
         state.vetoRequested = true;
@@ -387,7 +457,8 @@ async function startServer() {
       if (!state || !state.vetoRequested) return;
 
       const player = state.players.find(p => p.id === socket.id);
-      if (!player || !player.isPresident) return;
+      if (!player || !player.isPresident || !player.isAlive || player.hasActed) return;
+      player.hasActed = true;
 
       engine.handleVetoResponse(state, roomId, player, agree);
     });
@@ -400,6 +471,12 @@ async function startServer() {
 
       const player = state.players.find(p => p.id === socket.id);
       if (!player) return;
+
+      if (text.startsWith('/debug')) {
+        state.log.push(`DEBUG: Phase: ${state.phase}, PresIdx: ${state.presidentIdx}, Pres: ${state.players[state.presidentIdx]?.name}, Chan: ${state.players[state.chancellorId || '']?.name}`);
+        engine.broadcastState(roomId);
+        return;
+      }
 
       state.messages.push({ sender: player.name, text, timestamp: Date.now() });
       if (state.messages.length > 50) state.messages.shift();

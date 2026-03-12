@@ -1,7 +1,7 @@
 import { randomUUID } from "crypto";
 import { Server, Socket } from "socket.io";
 import {
-  GameState, Player, Policy, ExecutiveAction,
+  GameState, Player, Policy, ExecutiveAction, TitleRole
 } from "../src/types.ts";
 import { shuffle, createDeck } from "./utils.ts";
 import { AI_BOTS, CHAT } from "./aiConstants.ts";
@@ -15,6 +15,7 @@ import {
   updateSuspicionFromDeclarations,
   updateSuspicionFromInvestigation,
   updateSuspicionFromNomination,
+  updateSuspicionFromPolicyExpectation,
 } from "./suspicion.ts";
 import { getUserById, saveUser } from "./supabaseService.ts";
 
@@ -43,12 +44,40 @@ export class GameEngine {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // Helpers
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  resetPlayerActions(state: GameState): void {
+    state.players.forEach(p => {
+      p.hasActed = false;
+    });
+  }
+
+  private assignTitleRoles(state: GameState): void {
+    const numPlayers = state.players.length;
+    let numTitleRoles = 0;
+    if (numPlayers >= 5 && numPlayers <= 6) numTitleRoles = 2;
+    else if (numPlayers >= 7 && numPlayers <= 8) numTitleRoles = 3;
+    else if (numPlayers >= 9 && numPlayers <= 10) numTitleRoles = 4;
+
+    const roles: TitleRole[] = ['Assassin', 'Strategist', 'Broker', 'Handler', 'Auditor', 'Interdictor'];
+    const shuffledRoles = shuffle(roles);
+    
+    const players = shuffle([...state.players]);
+    for (let i = 0; i < numTitleRoles; i++) {
+        players[i].titleRole = shuffledRoles[i];
+        players[i].titleUsed = false;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // Broadcasting
   // ═══════════════════════════════════════════════════════════════════════════
 
   broadcastState(roomId: string): void {
     const state = this.rooms.get(roomId);
     if (!state) return;
+    state.log.push(`DEBUG: Broadcasting state for room ${roomId}, phase: ${state.phase}, rejectedChancellorId: ${state.rejectedChancellorId}`);
 
     // Start action timer if phase changed or just started
     if (
@@ -73,17 +102,17 @@ export class GameEngine {
 
     // Private role info per human player
     state.players.forEach(p => {
-      if (p.isAI) return;
+      if (p.isAI || !p.role) return;
       const stateAgents = state.players
         .filter(pl => pl.role === "State" || pl.role === "Overseer")
         .map(pl => ({ id: pl.id, name: pl.name, role: pl.role! }));
 
       if (p.role === "State") {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents });
+        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents, titleRole: p.titleRole });
       } else if (p.role === "Overseer" && state.players.length <= 6) {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents });
+        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents, titleRole: p.titleRole });
       } else {
-        this.io.to(p.id).emit("privateInfo", { role: p.role! });
+        this.io.to(p.id).emit("privateInfo", { role: p.role!, titleRole: p.titleRole });
       }
     });
   }
@@ -126,7 +155,9 @@ export class GameEngine {
   }
 
   private handleActionTimerExpiry(s: GameState, roomId: string): void {
-    if (s.phase === "Election") {
+    if (s.titlePrompt) {
+      this.handleTitleAbility(s, roomId, { use: false });
+    } else if (s.phase === "Election") {
       const president = s.players[s.presidentIdx];
       const eligible = s.players.filter(p =>
         p.isAlive &&
@@ -173,21 +204,34 @@ export class GameEngine {
         // Note: triggerAIDeclarations is NOT called here. It will be called
         // by triggerPolicyEnactment after the chancellor plays their policy.
       }
-
+    } else if (s.phase === "Nomination_Review") {
+      s.phase = "Voting";
+      s.log.push("[Timer] Nomination review time expired.");
+      this.broadcastState(roomId);
+      this.processAITurns(roomId);
+    } else if (s.titlePrompt) {
+      this.handleTitleAbility(s, roomId, { use: false });
     } else if (s.phase === "Legislative_Chancellor") {
       const chancellor = s.players.find(p => p.isChancellor);
       if (chancellor && s.chancellorPolicies.length > 0) {
         const played   = s.chancellorPolicies.splice(
           Math.floor(Math.random() * s.chancellorPolicies.length), 1
         )[0];
-        const discarded = s.chancellorPolicies[0];
-        s.discard.push(discarded);
+        s.discard.push(...s.chancellorPolicies);
         s.chancellorPolicies = [];
         s.chancellorTimedOut = true;
         s.log.push(`[Timer] ${chancellor.name} was too slow. A random directive was enacted.`);
         this.triggerPolicyEnactment(s, roomId, played, false, chancellor.id);
       }
 
+    } else if (s.phase === "Assassin_Action") {
+      const nextPhase = s.titlePrompt?.nextPhase;
+      s.titlePrompt = undefined;
+      s.phase = nextPhase || 'Election';
+      if (s.phase === 'Election') {
+        this.nextPresident(s, roomId, true);
+      }
+      this.broadcastState(roomId);
     } else if (s.phase === "Executive_Action") {
       const president = s.players.find(p => p.isPresident);
       if (president) {
@@ -209,6 +253,7 @@ export class GameEngine {
     const state = this.rooms.get(roomId);
     if (!state || state.phase === "Lobby" || state.phase === "GameOver" || state.isPaused) return;
 
+    state.log.push(`DEBUG: processAITurns called. Phase: ${state.phase}`);
     setTimeout(async () => {
       const s = this.rooms.get(roomId);
       if (!s || s.isPaused) return;
@@ -223,6 +268,11 @@ export class GameEngine {
         this.aiChancellorPlay(s, roomId);
       } else if (s.phase === "Executive_Action") {
         await this.aiExecutiveAction(s, roomId);
+      }
+
+      // AI handle title ability
+      if (s.titlePrompt) {
+        this.aiHandleTitleAbility(s, roomId);
       }
 
       // AI President response to Veto
@@ -241,39 +291,125 @@ export class GameEngine {
     const eligible = s.players.filter(p =>
       p.isAlive &&
       p.id !== president.id &&
+      p.id !== s.rejectedChancellorId &&
       !p.wasChancellor &&
       !(s.players.filter(pl => pl.isAlive).length > 5 && p.wasPresident)
     );
-    if (eligible.length === 0) return;
-
     let target: Player;
-
-    if (president.role === "Civil" && president.suspicion) {
-      target = leastSuspicious(president, eligible);
+    if (eligible.length === 0) {
+      // Fallback: pick any alive player except president
+      const allAlive = s.players.filter(p => p.isAlive && p.id !== president.id);
+      if (allAlive.length === 0) return;
+      target = allAlive[Math.floor(Math.random() * allAlive.length)];
+      s.log.push(`[Fallback] ${president.name} could not nominate an eligible player. ${target.name} was auto-nominated.`);
     } else {
-      const overseerCandidate  = eligible.find(p => p.role === "Overseer");
-      const stateTeammate  = eligible.find(p => p.role === "State");
-      if (s.stateDirectives >= 3 && overseerCandidate) {
-        target = overseerCandidate;
-      } else if (stateTeammate && Math.random() > 0.3) {
-        target = stateTeammate;
+      if (president.role === "Civil" && president.suspicion) {
+        target = leastSuspicious(president, eligible);
       } else {
-        target = eligible[Math.floor(Math.random() * eligible.length)];
+        const overseerCandidate  = eligible.find(p => p.role === "Overseer");
+        const stateTeammate  = eligible.find(p => p.role === "State");
+        if (s.stateDirectives >= 3 && overseerCandidate) {
+          target = overseerCandidate;
+        } else if (stateTeammate && Math.random() > 0.3) {
+          target = stateTeammate;
+        } else {
+          target = eligible[Math.floor(Math.random() * eligible.length)];
+        }
       }
     }
 
     target.isChancellorCandidate = true;
-    s.phase = "Voting";
+    this.resetPlayerActions(s);
+    
+    const broker = s.players.find(p => p.titleRole === 'Broker' && !p.titleUsed);
+
+    if (broker && broker.id !== president.id) {
+      s.titlePrompt = { playerId: broker.id, role: 'Broker', context: {}, nextPhase: 'Voting' };
+      s.phase = 'Nomination_Review';
+    } else {
+      s.phase = "Voting";
+    }
+
+    this.startActionTimer(roomId);
     s.log.push(`${president.name} nominated ${target.name} for Chancellor.`);
     updateSuspicionFromNomination(s, president.id, target.id);
     this.broadcastState(roomId);
     this.processAITurns(roomId);
   }
 
+  private aiHandleTitleAbility(s: GameState, roomId: string): void {
+    const prompt = s.titlePrompt;
+    if (!prompt) return;
+    const player = s.players.find(p => p.id === prompt.playerId);
+    if (!player || !player.isAI) return;
+
+    const isPresident = player.id === s.players[s.presidentIdx].id;
+    if (isPresident && (prompt.role === 'Broker' || prompt.role === 'Interdictor')) {
+      this.handleTitleAbility(s, roomId, { use: false });
+      return;
+    }
+
+    let abilityData: any = { use: false };
+
+    switch (prompt.role) {
+      case 'Assassin':
+        const targets = s.players.filter(p => p.isAlive && p.id !== player.id);
+        const mostSuspiciousTarget = mostSuspicious(player, targets);
+        if (getSuspicion(player, mostSuspiciousTarget.id) > 0.7) {
+          abilityData.use = true;
+          abilityData.targetId = mostSuspiciousTarget.id;
+        }
+        break;
+      case 'Strategist':
+        // Strategist: Use if they want to find specific policies (Civil or State)
+        // AI will use it 60% of the time if it's available
+        if (Math.random() > 0.4) {
+          abilityData.use = true;
+        }
+        break;
+      case 'Broker':
+        // Broker: Force re-nomination if current nominee is suspicious
+        // But don't force re-nomination of your own choice if you are the President
+        const chancellorCandidate = s.players.find(p => p.isChancellorCandidate);
+        const isPresident = player.id === s.players[s.presidentIdx].id;
+        if (!isPresident && chancellorCandidate && getSuspicion(player, chancellorCandidate.id) > 0.6) {
+          abilityData.use = true;
+        }
+        break;
+      case 'Handler':
+        // Handler: Swap next two if the person immediately after current president is suspicious
+        if (s.presidentialOrder) {
+          const currentId = s.players[s.presidentIdx].id;
+          const currentIndex = s.presidentialOrder.indexOf(currentId);
+          const next1Id = s.presidentialOrder[(currentIndex + 1) % s.presidentialOrder.length];
+          if (getSuspicion(player, next1Id) > 0.6) {
+            abilityData.use = true;
+          }
+        }
+        break;
+      case 'Auditor':
+        // Auditor: Always useful to peek
+        abilityData.use = true;
+        break;
+      case 'Interdictor':
+        // Interdictor: Detain someone suspicious
+        const eligibleTargets = s.players.filter(p => p.isAlive && p.id !== s.players[s.presidentIdx].id);
+        const suspiciousTarget = eligibleTargets.find(p => getSuspicion(player, p.id) > 0.7);
+        if (suspiciousTarget) {
+          abilityData.use = true;
+          abilityData.targetId = suspiciousTarget.id;
+        }
+        break;
+    }
+
+    this.handleTitleAbility(s, roomId, abilityData);
+  }
+
   // ─── AI: Voting phase ──────────────────────────────────────────────────────
 
   private aiCastVotes(s: GameState, roomId: string): void {
-    const aiVoters = s.players.filter(p => p.isAI && p.isAlive && !p.vote);
+    const aiVoters = s.players.filter(p => p.isAI && p.isAlive && !p.vote && p.id !== s.detainedPlayerId);
+    s.log.push(`DEBUG: aiCastVotes called. AI voters: ${aiVoters.length}, Phase: ${s.phase}`);
     if (aiVoters.length === 0) return;
 
     const chancellor = s.players.find(p => p.isChancellorCandidate);
@@ -286,7 +422,10 @@ export class GameEngine {
     const ayeVotes   = s.players.filter(p => p.vote === "Aye").length;
     const nayVotes = s.players.filter(p => p.vote === "Nay").length;
 
-    if (s.players.filter(p => p.isAlive && !p.vote).length === 0) {
+    const remainingVotes = s.players.filter(p => p.isAlive && p.id !== s.detainedPlayerId && !p.vote).length;
+    s.log.push(`DEBUG: Remaining votes: ${remainingVotes}`);
+
+    if (remainingVotes === 0) {
       this.handleVoteResult(s, roomId, ayeVotes, nayVotes);
     } else {
       this.broadcastState(roomId);
@@ -299,12 +438,18 @@ export class GameEngine {
     president: Player,
     chancellor: Player | null
   ): "Aye" | "Nay" {
+    // Difficulty scaling
+    const difficultyMultiplier = ai.difficulty === 'Elite' ? 1.5 : ai.difficulty === 'Casual' ? 0.5 : 1.0;
+
     if (ai.role === "Civil" && ai.suspicion) {
       const presSusp  = getSuspicion(ai, president.id);
       const chanSusp  = chancellor ? getSuspicion(ai, chancellor.id) : 0;
-      const threshold = Math.min(0.65, 0.50 + s.round * 0.015);
+      
+      // Risk-based voting
+      const riskTolerance = ai.personality === 'Strategic' ? 0.3 : ai.personality === 'Chaotic' ? 0.7 : 0.5;
+      const threshold = Math.min(0.65, 0.50 + s.round * 0.015) * difficultyMultiplier;
 
-      if (presSusp > threshold || chanSusp > threshold) {
+      if ((presSusp * difficultyMultiplier > threshold || chanSusp * difficultyMultiplier > threshold) && Math.random() > riskTolerance) {
         return s.electionTracker >= 2 ? "Aye" : "Nay";
       }
       if (s.stateDirectives >= 3 && chancellor?.role === "Overseer") return "Nay";
@@ -331,6 +476,13 @@ export class GameEngine {
 
     const discarded = s.drawnPolicies.splice(idx, 1)[0];
     s.discard.push(discarded);
+
+    if (s.drawnPolicies.length > 2) {
+      // Still more to discard (Strategist case)
+      this.aiPresidentDiscard(s, roomId);
+      return;
+    }
+
     s.chancellorPolicies = [...s.drawnPolicies];
     s.chancellorSaw = [...s.chancellorPolicies];
     s.drawnPolicies = [];
@@ -363,16 +515,23 @@ export class GameEngine {
     const chancellor = s.players.find(p => p.isChancellor);
     if (!chancellor?.isAI || s.chancellorPolicies.length === 0) return;
 
-    let idx = this.choosePolicyToPlay(chancellor, s.chancellorPolicies, s.stateDirectives);
+    let idx = this.choosePolicyToPlay(chancellor, s.chancellorPolicies, s.stateDirectives, s.civilDirectives);
 
     const played    = s.chancellorPolicies.splice(idx, 1)[0];
-    const discarded = s.chancellorPolicies[0];
-    s.discard.push(discarded);
+    s.discard.push(...s.chancellorPolicies);
     s.chancellorPolicies = [];
     this.triggerPolicyEnactment(s, roomId, played, false, chancellor.id);
   }
 
-  private choosePolicyToPlay(player: Player, hand: Policy[], stateDirectives: number): number {
+  private choosePolicyToPlay(player: Player, hand: Policy[], stateDirectives: number, civilDirectives: number): number {
+    // If playing a directive wins the game for the AI's party, do it.
+    if (player.role === "Civil" && civilDirectives === 4 && hand.includes("Civil")) {
+      return hand.findIndex(p => p === "Civil");
+    }
+    if ((player.role === "State" || player.role === "Overseer") && stateDirectives === 5 && hand.includes("State")) {
+      return hand.findIndex(p => p === "State");
+    }
+
     let idx = -1;
     if (player.personality === "Aggressive" && player.role !== "Civil") {
       idx = hand.findIndex(p => p === "Civil"); // Discard Civil, play State
@@ -455,8 +614,11 @@ export class GameEngine {
 
   // ─── AI: Chat helpers ──────────────────────────────────────────────────────
 
-  private postAIChat(state: GameState, ai: Player, lines: readonly string[]): void {
-    const text = lines[Math.floor(Math.random() * lines.length)];
+  private postAIChat(state: GameState, ai: Player, lines: readonly string[], targetName?: string): void {
+    let text = lines[Math.floor(Math.random() * lines.length)];
+    if (targetName) {
+      text = text.replace("{name}", targetName);
+    }
     state.messages.push({ sender: ai.name, text, timestamp: Date.now(), type: "text" });
     if (state.messages.length > 50) state.messages.shift();
   }
@@ -466,10 +628,17 @@ export class GameEngine {
   // ═══════════════════════════════════════════════════════════════════════════
 
   triggerAIDeclarations(state: GameState, roomId: string): void {
+    state.log.push(`DEBUG: triggerAIDeclarations called, phase: ${state.phase}`);
     if (state.isPaused) return;
+    // Only proceed if we are still in the legislative phase.
+    // If a human player already declared and triggered the next round, skip this.
+    if (state.phase !== "Legislative_Chancellor") return;
+
     const president  = state.players.find(p => p.isPresident);
     const chancellor = state.players.find(p => p.isChancellor);
     if (!president || !chancellor) return;
+
+    state.log.push(`DEBUG: AI declarations: president ${president.name} (AI: ${president.isAI}), chancellor ${chancellor.name} (AI: ${chancellor.isAI})`);
 
     const presIsState = president.role === "State" || president.role === "Overseer";
     const chanIsState = chancellor.role === "State" || chancellor.role === "Overseer";
@@ -484,28 +653,32 @@ export class GameEngine {
 
       // For president: saw = chancellorSaw (what they passed), drew = presidentSaw
       // For chancellor: saw = chancellorSaw (what they received)
-      const saw  = type === "President" ? (state.chancellorSaw ?? []) : (state.chancellorSaw ?? []);
+      const saw = state.chancellorSaw ?? [];
       const drew = state.presidentSaw ?? [];
-      let civ   = saw.filter(p => p === "Civil").length;
-      let sta    = saw.filter(p => p === "State").length;
+      let civ = saw.filter(p => p === "Civil").length;
+      let sta = saw.filter(p => p === "State").length;
       const drewCiv = drew.filter(p => p === "Civil").length;
       const drewSta = drew.filter(p => p === "State").length;
 
       if (bothState && enacted === "State") {
         // ── Coordinated State lying ─────────────────────────────────────
         if (type === "President") {
-          const actualSta = sta;
-          if (actualSta === 3) {
-            if (Math.random() > 0.45) { civ = 1; sta = 2; }
-          } else if (actualSta === 2) {
-            civ = 2; sta = 1;
+          // If they passed 2 State, they might lie and say they passed 1 of each
+          // to make it look like there's a Civil card in the mix.
+          if (sta === 2 && Math.random() > 0.5) {
+            civ = 1;
+            sta = 1;
+          } else if (sta === 1 && Math.random() > 0.5) {
+            // Or if they passed 1 of each, they might claim they passed 2 State
+            // to hide the Civil card.
+            civ = 0;
+            sta = 2;
           }
-          const chanSta = Math.max(1, sta - 1);
-          state.pendingChancellorClaim = { civ: 2 - chanSta, sta: chanSta };
+          state.pendingChancellorClaim = { civ, sta };
         } else {
           if (state.pendingChancellorClaim) {
             civ = state.pendingChancellorClaim.civ;
-            sta  = state.pendingChancellorClaim.sta;
+            sta = state.pendingChancellorClaim.sta;
             state.pendingChancellorClaim = undefined;
           }
         }
@@ -586,6 +759,7 @@ export class GameEngine {
     playerId?: string
   ): void {
     state.lastEnactedPolicy = { type: played, timestamp: Date.now(), playerId };
+    this.broadcastState(roomId);
 
     setTimeout(async () => {
       if (state.isPaused) return;
@@ -595,11 +769,12 @@ export class GameEngine {
         state.log.push("A Civil directive was enacted.");
       } else {
         state.stateDirectives++;
-        state.log.push("A State directive was enacted.");
+        state.log.push(`A State directive was enacted. Total State directives: ${state.stateDirectives}`);
         if (state.stateDirectives >= 5) state.vetoUnlocked = true;
       }
 
       updateSuspicionFromPolicy(state, played);
+      updateSuspicionFromPolicyExpectation(state, played);
 
       await this.checkVictory(state, roomId);
       if (state.phase !== "GameOver") {
@@ -639,11 +814,159 @@ export class GameEngine {
     });
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // Voting
-  // ═══════════════════════════════════════════════════════════════════════════
+  checkAuditorTrigger(state: GameState): void {
+    const auditor = state.players.find(p => p.titleRole === 'Auditor' && !p.titleUsed);
+    if (auditor) {
+      state.titlePrompt = {
+        playerId: auditor.id,
+        role: 'Auditor',
+        context: { discardPile: state.discard.slice(-3) }
+      };
+    }
+  }
+
+  handleTitleAbility(state: GameState, roomId: string, abilityData: any): void {
+    const player = state.players.find(p => p.id === state.titlePrompt?.playerId);
+    if (!player || !state.titlePrompt) return;
+
+    const phaseBefore = state.phase;
+    const role = state.titlePrompt.role;
+    const nextPhase = state.titlePrompt.nextPhase;
+
+    if (abilityData.use) {
+      // Apply ability logic based on role
+      switch (state.titlePrompt.role) {
+        case 'Assassin':
+          const target = state.players.find(p => p.id === abilityData.targetId);
+          if (target && target.isAlive) {
+            target.isAlive = false;
+            target.isPresident = false;
+            target.isChancellor = false;
+            target.isPresidentialCandidate = false;
+            target.isChancellorCandidate = false;
+            state.log.push(`${player.name} (Assassin) executed ${target.name}.`);
+          }
+          break;
+        case 'Strategist':
+          const top4 = state.deck.splice(0, 4);
+          state.drawnPolicies = top4;
+          state.log.push(`${player.name} (Strategist) drew an extra policy (4 total).`);
+          break;
+        case 'Broker':
+          // Logic for re-nomination
+          const currentChancellor = state.players.find(p => p.isChancellorCandidate);
+          if (currentChancellor) {
+            currentChancellor.isChancellorCandidate = false;
+            state.rejectedChancellorId = currentChancellor.id;
+            state.log.push(`DEBUG: Broker rejected ${currentChancellor.name} (id: ${currentChancellor.id})`);
+          }
+          state.phase = 'Election';
+          state.log.push(`${player.name} (Broker) forced a re-nomination.`);
+          break;
+        case 'Handler':
+          if (state.presidentialOrder) {
+            const currentId = state.players[state.presidentIdx].id;
+            const currentIndex = state.presidentialOrder.indexOf(currentId);
+            const next1Index = (currentIndex + 1) % state.presidentialOrder.length;
+            const next2Index = (currentIndex + 2) % state.presidentialOrder.length;
+            
+            const temp = state.presidentialOrder[next1Index];
+            state.presidentialOrder[next1Index] = state.presidentialOrder[next2Index];
+            state.presidentialOrder[next2Index] = temp;
+            
+            state.log.push(`${player.name} (Handler) swapped the next two players in the presidential order.`);
+          }
+          break;
+        case 'Auditor':
+          // Logic for peeking discard
+          // Send last 3 discarded policies to Auditor
+          const last3Discarded = state.discard.slice(-3);
+          this.io.to(player.id).emit("policyPeekResult", last3Discarded, "Last 3 discarded directives:");
+          state.log.push(`${player.name} (Auditor) peeked at the discard pile.`);
+          break;
+        case 'Interdictor':
+          const detainedTarget = state.players.find(p => p.id === abilityData.targetId);
+          const president = state.players[state.presidentIdx];
+          if (detainedTarget && detainedTarget.isAlive && detainedTarget.id !== president.id) {
+            state.detainedPlayerId = detainedTarget.id;
+            state.log.push(`${player.name} (Interdictor) detained ${detainedTarget.name} for this round.`);
+          }
+          break;
+      }
+      this.io.emit("powerUsed", { role: state.titlePrompt.role });
+      player.titleUsed = true;
+    } else {
+      // If NOT using the ability, some roles need fallback logic
+      if (role === 'Strategist' && state.drawnPolicies.length === 0) {
+        // President declined Strategist, draw standard 3
+        state.drawnPolicies = state.deck.splice(0, 3);
+      }
+    }
+
+    // Check for next title ability (chaining)
+    let nextPrompt: any = undefined;
+    const nextInterdictor = state.players.find(p => p.titleRole === 'Interdictor' && !p.titleUsed && p.isAlive);
+
+    if (role === 'Broker') {
+      const anotherBroker = state.players.find(p => p.titleRole === 'Broker' && !p.titleUsed && p.isAlive && p.id !== player.id);
+      if (anotherBroker) {
+        nextPrompt = { playerId: anotherBroker.id, role: 'Broker', context: {}, nextPhase };
+      }
+    } else if (role === 'Handler') {
+      if (nextInterdictor) {
+        nextPrompt = { playerId: nextInterdictor.id, role: 'Interdictor', context: {}, nextPhase };
+      }
+    } else if (role === 'Interdictor') {
+      const anotherInterdictor = state.players.find(p => p.titleRole === 'Interdictor' && !p.titleUsed && p.isAlive && p.id !== player.id);
+      if (anotherInterdictor) {
+        nextPrompt = { playerId: anotherInterdictor.id, role: 'Interdictor', context: {}, nextPhase };
+      }
+    }
+
+    if (nextPrompt) {
+      state.titlePrompt = nextPrompt;
+    } else {
+      state.titlePrompt = undefined;
+      
+      // Only transition phase if the ability didn't already change it (e.g. Broker to Election)
+      // and if we have a nextPhase or are in a blocking title phase.
+      if (state.phase === phaseBefore) {
+        if (nextPhase) {
+          state.phase = nextPhase;
+          if (state.phase === 'Voting') {
+            this.startActionTimer(roomId);
+            this.processAITurns(roomId);
+          }
+        } else if (state.phase === 'Nomination_Review') {
+          state.phase = 'Voting';
+          this.startActionTimer(roomId);
+          this.processAITurns(roomId);
+        }
+      }
+    }
+
+    // If we were waiting for Handler or Interdictor, we MUST start the election now if no more prompts are pending.
+    if ((role === 'Handler' || role === 'Interdictor') && !state.titlePrompt) {
+      this.startElection(state, roomId);
+      return;
+    }
+    // If Broker was used, we MUST start the election now.
+    if (role === 'Broker' && abilityData.use) {
+      this.startElection(state, roomId);
+      return;
+    }
+
+    if (role === 'Assassin') {
+      state.phase = 'Legislative_Chancellor';
+      this.checkRoundEnd(state, roomId);
+    }
+
+    this.broadcastState(roomId);
+    this.processAITurns(roomId);
+  }
 
   handleVoteResult(state: GameState, roomId: string, ayeVotes: number, nayVotes: number): void {
+    state.log.push(`DEBUG: handleVoteResult called. Aye: ${ayeVotes}, Nay: ${nayVotes}`);
     state.phase = "Voting_Reveal" as any;
 
     if (!state.previousVotes) state.previousVotes = {};
@@ -651,6 +974,21 @@ export class GameEngine {
       if (p.vote) state.previousVotes![p.id] = p.vote;
       p.vote = undefined;
     });
+
+    // Coalition detection
+    const voters = state.players.filter(p => p.isAlive && state.previousVotes![p.id]);
+    for (let i = 0; i < voters.length; i++) {
+        for (let j = i + 1; j < voters.length; j++) {
+            const p1 = voters[i];
+            const p2 = voters[j];
+            if (state.previousVotes![p1.id] === state.previousVotes![p2.id]) {
+                if (!p1.alliances) p1.alliances = {};
+                if (!p2.alliances) p2.alliances = {};
+                p1.alliances[p2.id] = (p1.alliances[p2.id] || 0) + 0.1;
+                p2.alliances[p1.id] = (p2.alliances[p1.id] || 0) + 0.1;
+            }
+        }
+    }
 
     const voteInfo = `(${ayeVotes} Aye, ${nayVotes} Nay)`;
     state.actionTimerEnd = Date.now() + 4000;
@@ -689,6 +1027,7 @@ export class GameEngine {
     }
 
     s.phase = "Legislative_President";
+    this.resetPlayerActions(s);
     startActionTimerRef(this, roomId);
     s.electionTracker = 0;
     s.players.forEach(p => { p.isPresident = false; p.isChancellor = false; });
@@ -704,11 +1043,23 @@ export class GameEngine {
     updateSuspicionFromNomination(s, president.id, chancellor.id);
 
     // Ensure we have 3 cards to draw (should already be true due to pre-round reshuffle)
-    if (s.deck.length < 3) {
+    if (s.deck.length < 4) {
       s.deck = shuffle([...s.deck, ...s.discard]);
       s.discard = [];
     }
-    s.drawnPolicies = s.deck.splice(0, 3);
+    
+    // Check for Strategist
+    if (president.titleRole === 'Strategist' && !president.titleUsed) {
+        s.titlePrompt = {
+            playerId: president.id,
+            role: 'Strategist',
+            context: {},
+            nextPhase: 'Legislative_President'
+        };
+        s.drawnPolicies = []; // Wait for ability
+    } else {
+        s.drawnPolicies = s.deck.splice(0, 3);
+    }
   }
 
   private async handleElectionFailed(s: GameState, roomId: string, voteInfo: string): Promise<void> {
@@ -732,6 +1083,7 @@ export class GameEngine {
     s.electionTracker++;
     if (s.electionTracker === 3) {
       s.log.push("Election tracker reached 3! Chaos directive enacted.");
+      this.resetPlayerActions(s);
       if (s.deck.length < 1) {
         s.deck = shuffle([...s.deck, ...s.discard]);
         s.discard = [];
@@ -762,7 +1114,11 @@ export class GameEngine {
   // ═══════════════════════════════════════════════════════════════════════════
 
   checkRoundEnd(state: GameState, roomId: string): void {
+    state.log.push(`DEBUG: checkRoundEnd called for room ${roomId}, phase: ${state.phase}`);
     if (state.phase === "GameOver") return;
+    // Only proceed if we are in the phase where declarations are expected.
+    // This prevents double-triggering nextPresident if checkRoundEnd is called multiple times.
+    if (state.phase !== "Legislative_Chancellor") return;
 
     const presidentDeclared  = state.declarations.some(d => d.type === "President");
     const chancellorDeclared = state.declarations.some(d => d.type === "Chancellor");
@@ -775,23 +1131,38 @@ export class GameEngine {
       state.lastGovernmentVotes = undefined; // safe to clear now
     }
 
+    // Assassin power
+    const president = state.players[state.presidentIdx];
+    if (president.titleRole === 'Assassin' && !president.titleUsed && president.isAlive) {
+      state.titlePrompt = { playerId: president.id, role: 'Assassin', context: {}, nextPhase: 'Election' };
+      state.phase = 'Assassin_Action';
+      this.startActionTimer(roomId);
+      this.broadcastState(roomId);
+      this.processAITurns(roomId);
+      return;
+    }
+
     updateSuspicionFromDeclarations(state);
     const action = getExecutiveAction(state);
 
     if (action !== "None") {
-      state.phase = "Executive_Action";
-      this.startActionTimer(roomId);
-      state.currentExecutiveAction = action;
-      state.log.push(`Executive Action: ${action}`);
-
       if (action === "PolicyPeek") {
         const top3 = state.deck.slice(0, 3);
-        this.io.to(state.presidentId!).emit("policyPeekResult", top3);
+        if (state.presidentId) {
+          this.io.to(state.presidentId).emit("policyPeekResult", top3);
+        }
         state.log.push(
           `${state.players.find(p => p.id === state.presidentId)?.name} previewed the top 3 directives.`
         );
+        this.nextPresident(state, roomId, true);
+        return;
       }
 
+      state.phase = "Executive_Action";
+      this.resetPlayerActions(state);
+      this.startActionTimer(roomId);
+      state.currentExecutiveAction = action;
+      state.log.push(`Executive Action: ${action}`);
       this.processAITurns(roomId);
     } else {
       this.nextPresident(state, roomId, true);
@@ -813,16 +1184,10 @@ export class GameEngine {
       state.lastPresidentIdx = state.presidentIdx;
       state.presidentIdx = state.players.indexOf(target);
       this.startElection(state, roomId);
-    } else if (state.currentExecutiveAction === "PolicyPeek") {
-      state.log.push("President previewed the top 3 directives.");
-      if (state.presidentId) {
-        this.io.to(state.presidentId).emit("policyPeekResult", state.deck.slice(0, 3));
-      }
-      this.nextPresident(state, roomId, true);
     }
 
     this.broadcastState(roomId);
-    this.processAITurns(roomId);
+    state.currentExecutiveAction = "None";
   }
 
   private async executePlayer(state: GameState, roomId: string, target: Player): Promise<void> {
@@ -869,7 +1234,8 @@ export class GameEngine {
         if (!state.isPaused) {
           this.postAIChat(
             state, presPlayer,
-            investigationRole === "State" ? CHAT.investigateState : CHAT.investigateCivil
+            investigationRole === "State" ? CHAT.investigateState : CHAT.investigateCivil,
+            target.name
           );
           this.broadcastState(roomId);
         }
@@ -935,13 +1301,16 @@ export class GameEngine {
 
   nextPresident(state: GameState, roomId: string, isSuccessfulGovernment: boolean = false): void {
     state.vetoRequested = false;
+    state.rejectedChancellorId = undefined;
+    state.detainedPlayerId = undefined;
+    this.resetPlayerActions(state);
 
     if (isSuccessfulGovernment) {
-      const prevPres = state.players.find(p => p.isPresident);
-      const prevChan = state.players.find(p => p.isChancellor);
+      const prevPresPlayer = state.players.find(p => p.isPresident);
+      const prevChanPlayer = state.players.find(p => p.isChancellor);
       state.players.forEach(p => { p.wasPresident = false; p.wasChancellor = false; });
-      if (prevPres) prevPres.wasPresident = true;
-      if (prevChan) prevChan.wasChancellor = true;
+      if (prevPresPlayer) prevPresPlayer.wasPresident = true;
+      if (prevChanPlayer) prevChanPlayer.wasChancellor = true;
     }
 
     state.players.forEach(p => {
@@ -959,8 +1328,8 @@ export class GameEngine {
     state.round++;
     state.log.push(`--- Round ${state.round} Started ---`);
 
-    // Reshuffle if fewer than 3 cards remain before the round starts
-    if (state.deck.length < 3) {
+    // Reshuffle if fewer than 4 cards remain before the round starts
+    if (state.deck.length < 4) {
       state.log.push("Fewer than 3 cards in deck. Reshuffling discard pile...");
       state.deck = shuffle([...state.deck, ...state.discard]);
       state.discard = [];
@@ -974,11 +1343,51 @@ export class GameEngine {
       round: state.round,
     });
 
+    const oldIdx = state.presidentIdx;
     do {
-      state.presidentIdx = (state.presidentIdx + 1) % state.players.length;
+      if (state.presidentialOrder) {
+        const currentId = state.players[state.presidentIdx].id;
+        const currentIndexInOrder = state.presidentialOrder.indexOf(currentId);
+        const nextIndexInOrder = (currentIndexInOrder + 1) % state.presidentialOrder.length;
+        const nextId = state.presidentialOrder[nextIndexInOrder];
+        state.presidentIdx = state.players.findIndex(p => p.id === nextId);
+      } else {
+        state.presidentIdx = (state.presidentIdx + 1) % state.players.length;
+      }
     } while (!state.players[state.presidentIdx].isAlive);
+    
+    state.log.push(`DEBUG: President index was ${oldIdx}, now ${state.presidentIdx}, player: ${state.players[state.presidentIdx].name}`);
 
-    this.startElection(state, roomId);
+    const handler = state.players.find(p => p.titleRole === 'Handler' && !p.titleUsed);
+    const interdictor = state.players.find(p => p.titleRole === 'Interdictor' && !p.titleUsed);
+    
+    state.log.push(`DEBUG: Handler found: ${handler?.name}, Interdictor found: ${interdictor?.name}`);
+
+    if (handler) {
+      state.phase = "Nomination_Review";
+      state.titlePrompt = {
+        playerId: handler.id,
+        role: 'Handler',
+        context: {},
+        nextPhase: 'Election'
+      };
+      this.startActionTimer(roomId);
+      this.broadcastState(roomId);
+      this.processAITurns(roomId);
+    } else if (interdictor && interdictor.id !== state.players[state.presidentIdx].id) {
+      state.phase = "Nomination_Review";
+      state.titlePrompt = {
+        playerId: interdictor.id,
+        role: 'Interdictor',
+        context: {},
+        nextPhase: 'Voting'
+      };
+      this.startActionTimer(roomId);
+      this.broadcastState(roomId);
+      this.processAITurns(roomId);
+    } else {
+      this.startElection(state, roomId);
+    }
   }
 
   startElection(state: GameState, roomId: string): void {
@@ -1035,7 +1444,7 @@ export class GameEngine {
     const state = this.rooms.get(roomId);
     if (!state || state.phase !== "Lobby") return;
 
-    if (state.players.length < state.maxPlayers) {
+    if (state.players.length < state.maxPlayers && state.mode !== 'Ranked') {
       this.fillWithAI(roomId);
       return;
     }
@@ -1043,13 +1452,15 @@ export class GameEngine {
     const numPlayers = state.players.length;
     const roles = assignRoles(numPlayers);
     state.players.forEach((p, i) => (p.role = roles[i]));
+    this.assignTitleRoles(state);
 
     state.phase = "Election";
+    state.presidentialOrder = state.players.map(p => p.id);
     state.declarations = [];
     state.log.push(`--- Round ${state.round} Started ---`);
 
-    // Reshuffle if fewer than 3 cards remain (though deck is full at start)
-    if (state.deck.length < 3) {
+    // Reshuffle if fewer than 4 cards remain (though deck is full at start)
+    if (state.deck.length < 4) {
       state.deck = shuffle([...state.deck, ...state.discard]);
       state.discard = [];
     }
@@ -1077,7 +1488,7 @@ export class GameEngine {
 
     const player = state.players.find(p => p.id === socket.id);
     if (player) {
-      if (state.phase === "Lobby") {
+      if (state.phase === "Lobby" || state.phase === "GameOver") {
         state.players = state.players.filter(p => p.id !== socket.id);
         state.log.push(`${player.name} left the room.`);
       } else if (!player.isAI && !player.isDisconnected) {

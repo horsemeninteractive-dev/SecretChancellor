@@ -10,9 +10,10 @@ interface FriendsListProps {
   playSound: (sound: string) => void;
   roomId?: string;
   onJoinRoom?: (roomId: string) => void;
+  mode?: 'Casual' | 'Ranked';
 }
 
-export const FriendsList: React.FC<FriendsListProps> = ({ user, token, playSound, roomId, onJoinRoom }) => {
+export const FriendsList: React.FC<FriendsListProps> = ({ user, token, playSound, roomId, onJoinRoom, mode }) => {
   const [friends, setFriends] = useState<User[]>([]);
   const [onlineFriends, setOnlineFriends] = useState<Set<string>>(new Set());
   const [friendRooms, setFriendRooms] = useState<Map<string, string>>(new Map());
@@ -124,7 +125,7 @@ export const FriendsList: React.FC<FriendsListProps> = ({ user, token, playSound
             const isOnline = onlineFriends.has(friend.id);
             const friendRoom = friendRooms.get(friend.id);
             const canJoin = isOnline && !!friendRoom && onJoinRoom;
-            const canInvite = !!roomId;
+            const canInvite = !!roomId && mode !== 'Ranked';
             return (
               <div key={friend.id} className="flex items-center justify-between bg-[#141414] p-3 rounded-xl border border-[#222]">
                 <div className="flex items-center gap-3">

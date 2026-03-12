@@ -124,7 +124,7 @@ export const ChatPanel = ({
               >
                 {chatText === '' ? (
                   <span className="text-[#444]">
-                    {(!me?.isAlive && gameState.phase !== 'GameOver') ? 'Dead players cannot speak...' : 'Type a message...'}
+                    {((me ? !me.isAlive : false) && gameState.phase !== 'GameOver') ? 'Dead players cannot speak...' : 'Type a message...'}
                   </span>
                 ) : (
                   <div className="flex items-center h-full">
@@ -138,11 +138,11 @@ export const ChatPanel = ({
                 value={chatText}
                 onChange={e => { setChatText(e.target.value); setTimeout(onChatScroll, 0); }}
                 onScroll={onChatScroll}
-                placeholder={(!me?.isAlive && gameState.phase !== 'GameOver') ? 'Dead players cannot speak...' : 'Type a message...'}
-                disabled={!me?.isAlive && gameState.phase !== 'GameOver'}
+                placeholder={((me ? !me.isAlive : false) && gameState.phase !== 'GameOver') ? 'Dead players cannot speak...' : 'Type a message...'}
+                disabled={(me ? !me.isAlive : false) && gameState.phase !== 'GameOver'}
                 className={cn(
                   'w-full bg-[#1a1a1a] border border-[#333] rounded-full pl-4 pr-20 py-2 text-xs focus:outline-none focus:border-red-900/50 text-transparent caret-white selection:bg-red-900/30',
-                  (!me?.isAlive && gameState.phase !== 'GameOver') && 'opacity-50 cursor-not-allowed'
+                  ((me ? !me.isAlive : false) && gameState.phase !== 'GameOver') && 'opacity-50 cursor-not-allowed'
                 )}
               />
               <button

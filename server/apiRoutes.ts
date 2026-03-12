@@ -17,6 +17,7 @@ import {
   acceptFriendRequest,
   isFriend,
   removeFriend,
+  getLeaderboard,
 } from "./supabaseService.ts";
 
 const JWT_SECRET = process.env.JWT_SECRET || "secret-overseer-secret-key";
@@ -267,6 +268,11 @@ export function registerRoutes(
       mode:          state.mode,
     }));
     res.json(roomList);
+  });
+
+  app.get("/api/leaderboard", async (_req: Request, res: Response) => {
+    const leaderboard = await getLeaderboard();
+    res.json(leaderboard);
   });
 
   app.get("/api/rejoin-info", (req: Request, res: Response) => {
