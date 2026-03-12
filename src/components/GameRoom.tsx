@@ -316,14 +316,14 @@ export const GameRoom = ({
     
     const sender = gameState.players.find(p => p.name === lastMessage.sender);
     if (sender && sender.isAI) {
-      const voice = aiSpeech.getVoiceForAi(sender.name);
-      if (voice) {
+      const profile = aiSpeech.getVoiceProfileForAi(sender.name);
+      if (profile) {
         aiSpeech.speakAiMessage(
           lastMessage.text, 
           sender.name, 
-          voice,
-          () => setSpeakingPlayers(prev => ({ ...prev, [sender.id]: true })),
-          () => setSpeakingPlayers(prev => ({ ...prev, [sender.id]: false }))
+          profile,
+          () => setSpeakingPlayers(prev4 => ({ ...prev4, [sender.id]: true })),
+          () => setSpeakingPlayers(prev4 => ({ ...prev4, [sender.id]: false }))
         );
       }
     }
