@@ -87,6 +87,14 @@ export function registerRoutes(
 
   app.post("/api/register", async (req: Request, res: Response) => {
     const { username, password, avatarUrl } = req.body;
+    
+    if (!username || typeof username !== 'string' || username.length < 3 || username.length > 20) {
+      return res.status(400).json({ error: "Username must be between 3 and 20 characters" });
+    }
+    if (!password || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: "Password must be at least 8 characters long" });
+    }
+
     if (await getUser(username)) {
       return res.status(400).json({ error: "Username already exists" });
     }
@@ -284,7 +292,7 @@ export function registerRoutes(
 
   app.get("/api/leaderboard", async (_req: Request, res: Response) => {
     const leaderboard = await getLeaderboard();
-    res.json(leaderboard);
+    res.json(leaderboard.map(({ password: _, ...u }) => u));
   });
 
   app.get("/api/rejoin-info", (req: Request, res: Response) => {

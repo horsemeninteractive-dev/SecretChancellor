@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI, Modality } from "@google/genai";
 import { socket } from './socket';
 import { GameState, Role, User, PrivateInfo } from './types';
 import { motion } from 'motion/react';
@@ -40,7 +39,7 @@ export default function App() {
         try {
           console.log("Attempting auto-login...");
           const { code } = await discordSdk.commands.authorize({
-            client_id: process.env.DISCORD_CLIENT_ID || "",
+            client_id: import.meta.env.VITE_DISCORD_CLIENT_ID || "",
             response_type: "code",
             state: "",
             prompt: "none",
@@ -269,7 +268,7 @@ export default function App() {
     }
   };
 
-  const handleLeaveRoom = () => {
+  const handleLeaveRoom = (onComplete?: () => void) => {
     socket.emit('leaveRoom');
     setJoined(false);
     setGameState(null);
@@ -277,7 +276,10 @@ export default function App() {
     if (token) {
       fetch('/api/me', { headers: { Authorization: `Bearer ${token}` } })
         .then(res => res.json())
-        .then(data => { if (data.user) setUser(data.user); });
+        .then(data => { if (data.user) setUser(data.user); if (onComplete) onComplete(); })
+        .catch(() => { if (onComplete) onComplete(); });
+    } else {
+        if (onComplete) onComplete();
     }
   };
 
@@ -399,14 +401,14 @@ export default function App() {
               }}
               roomId={gameState?.roomId}
               mode={gameState?.mode}
-              onJoinRoom={(roomId) => { setIsProfileOpen(false); handleLeaveRoom(); setTimeout(() => handleJoinRoom(roomId), 100); }}
+              onJoinRoom={(roomId) => { setIsProfileOpen(false); handleLeaveRoom(() => handleJoinRoom(roomId)); }}
             />
           )}
           {pendingInvite && (
             <InviteModal
               inviterName={pendingInvite.fromUsername}
               roomId={pendingInvite.roomId}
-              onAccept={() => { handleLeaveRoom(); setTimeout(() => handleJoinRoom(pendingInvite.roomId), 100); setPendingInvite(null); }}
+              onAccept={() => { handleLeaveRoom(() => handleJoinRoom(pendingInvite.roomId)); setPendingInvite(null); }}
               onReject={() => setPendingInvite(null)}
             />
           )}

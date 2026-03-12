@@ -77,7 +77,7 @@ export class GameEngine {
   broadcastState(roomId: string): void {
     const state = this.rooms.get(roomId);
     if (!state) return;
-    state.log.push(`DEBUG: Broadcasting state for room ${roomId}, phase: ${state.phase}, rejectedChancellorId: ${state.rejectedChancellorId}`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: Broadcasting state for room ${roomId}, phase: ${state.phase}, rejectedChancellorId: ${state.rejectedChancellorId}`);
 
     // Start action timer if phase changed or just started
     if (
@@ -253,7 +253,7 @@ export class GameEngine {
     const state = this.rooms.get(roomId);
     if (!state || state.phase === "Lobby" || state.phase === "GameOver" || state.isPaused) return;
 
-    state.log.push(`DEBUG: processAITurns called. Phase: ${state.phase}`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: processAITurns called. Phase: ${state.phase}`);
     setTimeout(async () => {
       const s = this.rooms.get(roomId);
       if (!s || s.isPaused) return;
@@ -413,7 +413,7 @@ export class GameEngine {
 
   private aiCastVotes(s: GameState, roomId: string): void {
     const aiVoters = s.players.filter(p => p.isAI && p.isAlive && !p.vote && p.id !== s.detainedPlayerId);
-    s.log.push(`DEBUG: aiCastVotes called. AI voters: ${aiVoters.length}, Phase: ${s.phase}`);
+    if (process.env.NODE_ENV !== 'production') s.log.push(`DEBUG: aiCastVotes called. AI voters: ${aiVoters.length}, Phase: ${s.phase}`);
     if (aiVoters.length === 0) return;
 
     const chancellor = s.players.find(p => p.isChancellorCandidate);
@@ -427,7 +427,7 @@ export class GameEngine {
     const nayVotes = s.players.filter(p => p.vote === "Nay").length;
 
     const remainingVotes = s.players.filter(p => p.isAlive && p.id !== s.detainedPlayerId && !p.vote).length;
-    s.log.push(`DEBUG: Remaining votes: ${remainingVotes}`);
+    if (process.env.NODE_ENV !== 'production') s.log.push(`DEBUG: Remaining votes: ${remainingVotes}`);
 
     if (remainingVotes === 0) {
       this.handleVoteResult(s, roomId, ayeVotes, nayVotes);
@@ -632,7 +632,7 @@ export class GameEngine {
   // ═══════════════════════════════════════════════════════════════════════════
 
   triggerAIDeclarations(state: GameState, roomId: string): void {
-    state.log.push(`DEBUG: triggerAIDeclarations called, phase: ${state.phase}`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: triggerAIDeclarations called, phase: ${state.phase}`);
     if (state.isPaused) return;
     // Only proceed if we are still in the legislative phase.
     // If a human player already declared and triggered the next round, skip this.
@@ -642,7 +642,7 @@ export class GameEngine {
     const chancellor = state.players.find(p => p.isChancellor);
     if (!president || !chancellor) return;
 
-    state.log.push(`DEBUG: AI declarations: president ${president.name} (AI: ${president.isAI}), chancellor ${chancellor.name} (AI: ${chancellor.isAI})`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: AI declarations: president ${president.name} (AI: ${president.isAI}), chancellor ${chancellor.name} (AI: ${chancellor.isAI})`);
 
     const presIsState = president.role === "State" || president.role === "Overseer";
     const chanIsState = chancellor.role === "State" || chancellor.role === "Overseer";
@@ -862,7 +862,7 @@ export class GameEngine {
           if (currentChancellor) {
             currentChancellor.isChancellorCandidate = false;
             state.rejectedChancellorId = currentChancellor.id;
-            state.log.push(`DEBUG: Broker rejected ${currentChancellor.name} (id: ${currentChancellor.id})`);
+          if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: Broker rejected ${currentChancellor.name} (id: ${currentChancellor.id})`);
           }
           state.phase = 'Election';
           state.log.push(`${player.name} (Broker) forced a re-nomination.`);
@@ -1118,7 +1118,7 @@ export class GameEngine {
   // ═══════════════════════════════════════════════════════════════════════════
 
   checkRoundEnd(state: GameState, roomId: string): void {
-    state.log.push(`DEBUG: checkRoundEnd called for room ${roomId}, phase: ${state.phase}`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: checkRoundEnd called for room ${roomId}, phase: ${state.phase}`);
     if (state.phase === "GameOver") return;
     // Only proceed if we are in the phase where declarations are expected.
     // This prevents double-triggering nextPresident if checkRoundEnd is called multiple times.
@@ -1360,12 +1360,12 @@ export class GameEngine {
       }
     } while (!state.players[state.presidentIdx].isAlive);
     
-    state.log.push(`DEBUG: President index was ${oldIdx}, now ${state.presidentIdx}, player: ${state.players[state.presidentIdx].name}`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: President index was ${oldIdx}, now ${state.presidentIdx}, player: ${state.players[state.presidentIdx].name}`);
 
     const handler = state.players.find(p => p.titleRole === 'Handler' && !p.titleUsed);
     const interdictor = state.players.find(p => p.titleRole === 'Interdictor' && !p.titleUsed);
     
-    state.log.push(`DEBUG: Handler found: ${handler?.name}, Interdictor found: ${interdictor?.name}`);
+    if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: Handler found: ${handler?.name}, Interdictor found: ${interdictor?.name}`);
 
     if (handler) {
       state.phase = "Nomination_Review";

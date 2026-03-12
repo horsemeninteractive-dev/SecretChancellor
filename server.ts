@@ -19,7 +19,7 @@ async function startServer() {
   app.use(express.json());
 
   const httpServer = createServer(app);
-  const io = new Server(httpServer, { cors: { origin: "*" } });
+  const io = new Server(httpServer, { cors: { origin: "https://theassembly.web.app" } });
 
   const engine = new GameEngine({ io });
   const userSockets = new Map<string, string>();
@@ -225,8 +225,8 @@ async function startServer() {
       engine.startGame(roomId);
     });
 
-    socket.on("signal", ({ to, signal, from }) => {
-      io.to(to).emit("signal", { from, signal });
+    socket.on("signal", ({ to, signal }) => {
+      io.to(to).emit("signal", { from: socket.id, signal });
     });
 
     socket.on("sendFriendRequest", async (targetUserId) => {
@@ -484,11 +484,14 @@ async function startServer() {
       if (!player) return;
 
       if (text.startsWith('/debug')) {
-        state.log.push(`DEBUG: Phase: ${state.phase}, PresIdx: ${state.presidentIdx}, Pres: ${state.players[state.presidentIdx]?.name}, Chan: ${state.players[state.chancellorId || '']?.name}`);
-        engine.broadcastState(roomId);
+        if (process.env.NODE_ENV !== 'production') {
+          state.log.push(`DEBUG: Phase: ${state.phase}, PresIdx: ${state.presidentIdx}, Pres: ${state.players[state.presidentIdx]?.name}, Chan: ${state.players[state.chancellorId || '']?.name}`);
+          engine.broadcastState(roomId);
+        }
         return;
       }
 
+      if (text.length > 300) return;
       state.messages.push({ sender: player.name, text, timestamp: Date.now() });
       if (state.messages.length > 50) state.messages.shift();
       engine.broadcastState(roomId);
