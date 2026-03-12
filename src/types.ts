@@ -1,7 +1,5 @@
 export type Role = 'Civil' | 'State' | 'Overseer';
-export const Role = {};
 export type TitleRole = 'Assassin' | 'Strategist' | 'Broker' | 'Handler' | 'Auditor' | 'Interdictor';
-export const TitleRole = {};
 
 export interface PrivateInfo {
   role: Role;
@@ -9,13 +7,9 @@ export interface PrivateInfo {
   titleRole?: TitleRole;
 }
 export type Policy = 'Civil' | 'State';
-export const Policy = {};
 export type GamePhase = 'Lobby' | 'Election' | 'Voting' | 'Nomination_Review' | 'Voting_Reveal' | 'Legislative_President' | 'Legislative_Chancellor' | 'Executive_Action' | 'Assassin_Action' | 'GameOver';
-export const GamePhase = {};
 export type ExecutiveAction = 'Investigate' | 'SpecialElection' | 'Execution' | 'PolicyPeek' | 'None';
-export const ExecutiveAction = {};
 export type GameMode = 'Casual' | 'Ranked';
-export const GameMode = {};
 
 export interface UserStats {
   gamesPlayed: number;
@@ -29,7 +23,6 @@ export interface UserStats {
   elo: number;
   points: number;
 }
-export const UserStats = {};
 
 export interface CosmeticItem {
   id: string;
@@ -39,7 +32,6 @@ export interface CosmeticItem {
   imageUrl?: string;
   description?: string;
 }
-export const CosmeticItem = {};
 
 export interface User {
   id: string;
@@ -56,7 +48,12 @@ export interface User {
   cabinetPoints: number;
   claimedRewards: string[];
 }
-export const User = {};
+
+export interface UserInternal extends User {
+  password?: string;
+  googleId?: string;
+  discordId?: string;
+}
 
 export interface RoomInfo {
   id: string;
@@ -68,10 +65,8 @@ export interface RoomInfo {
   playerAvatars: string[];
   mode: GameMode;
 }
-export const RoomInfo = {};
 
 export type AIPersonality = 'Honest' | 'Deceptive' | 'Chaotic' | 'Strategic' | 'Aggressive';
-export const AIPersonality = {};
 
 export interface Player {
   id: string;
@@ -104,7 +99,6 @@ export interface Player {
   alliances?: { [playerId: string]: number };
   difficulty?: 'Casual' | 'Normal' | 'Elite';
 }
-export const Player = {};
 
 export interface GameState {
   roomId: string;
@@ -196,7 +190,6 @@ export interface GameState {
     executiveAction?: string;
   }[];
 }
-export const GameState = {};
 
 export interface ServerToClientEvents {
   gameStateUpdate: (state: GameState) => void;

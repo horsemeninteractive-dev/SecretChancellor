@@ -4,7 +4,9 @@ import { randomUUID } from "crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import axios from "axios";
+import { GameEngine } from "./gameEngine.ts";
 import { GameState, RoomInfo } from "../src/types.ts";
+import { DEFAULT_ITEMS } from "../src/constants.ts";
 import {
   getUser,
   getUserById,
@@ -20,31 +22,40 @@ import {
   getLeaderboard,
 } from "./supabaseService.ts";
 
-const JWT_SECRET = process.env.JWT_SECRET || "secret-overseer-secret-key";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) throw new Error("JWT_SECRET env variable is not set");
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 function getAppUrl(req?: Request): string {
-  if (req?.query?.origin) return req.query.origin as string;
+  const origin = req?.query?.origin as string;
+  if (origin) {
+    const allowedOrigins = [process.env.APP_URL, "https://theassembly.web.app", "http://localhost:3000"].filter(Boolean);
+    if (allowedOrigins.includes(origin)) return origin;
+  }
   if (req?.query?.state) {
     try {
       const stateData = JSON.parse(decodeURIComponent(req.query.state as string));
-      if (stateData.origin) return stateData.origin;
+      if (stateData.origin) {
+        const allowedOrigins = [process.env.APP_URL, "https://theassembly.web.app", "http://localhost:3000"].filter(Boolean);
+        if (allowedOrigins.includes(stateData.origin)) return stateData.origin;
+      }
     } catch (_) {}
   }
   if (!process.env.APP_URL) {
     console.warn("WARNING: APP_URL environment variable is not set. OAuth redirects may fail in production.");
   }
-  return process.env.APP_URL || "http://localhost:3000";
+  return process.env.APP_URL || "https://theassembly.web.app";
 }
 
 function oauthSuccessPage(user: any, token: string): string {
+  const targetOrigin = process.env.APP_URL || "https://theassembly.web.app";
   return `
     <html><body><script>
       if (window.opener) {
-        window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', user: ${JSON.stringify(user)}, token: '${token}' }, '*');
+        window.opener.postMessage({ type: 'OAUTH_AUTH_SUCCESS', user: ${JSON.stringify(user)}, token: '${token}' }, '${targetOrigin}');
         window.close();
       } else {
         const userEncoded = encodeURIComponent(JSON.stringify(${JSON.stringify(user)}));
@@ -61,9 +72,10 @@ function oauthSuccessPage(user: any, token: string): string {
 export function registerRoutes(
   app: Express,
   io: Server,
-  rooms: Map<string, GameState>,
+  engine: GameEngine,
   userSockets: Map<string, string>
 ): void {
+  const rooms = engine.rooms;
 
   // ── Version endpoint ────────────────────────────────────────────────────────
   app.get("/version", (_req: Request, res: Response) => {
@@ -257,7 +269,7 @@ export function registerRoutes(
   // ── Rooms ─────────────────────────────────────────────────────────────────
 
   app.get("/api/rooms", (_req: Request, res: Response) => {
-    const roomList: RoomInfo[] = Array.from(rooms.entries()).map(([id, state]) => ({
+    const roomList: RoomInfo[] = Array.from(engine.rooms.entries()).map(([id, state]) => ({
       id,
       name:          state.roomId,
       playerCount:   state.players.length,
@@ -278,7 +290,7 @@ export function registerRoutes(
   app.get("/api/rejoin-info", (req: Request, res: Response) => {
     const userId = req.query.userId as string;
     if (!userId) return res.json({ canRejoin: false });
-    for (const state of rooms.values()) {
+    for (const state of engine.rooms.values()) {
       const player = state.players.find(p => p.userId === userId && p.isDisconnected);
       if (player) {
         return res.json({
@@ -296,15 +308,20 @@ export function registerRoutes(
 
   app.post("/api/shop/buy", async (req: Request, res: Response) => {
     const token = req.headers.authorization?.split(" ")[1];
-    const { itemId, price } = req.body;
+    const { itemId } = req.body;
     if (!token) return res.status(401).json({ error: "No token" });
     try {
       const decoded = jwt.verify(token, JWT_SECRET) as { username: string };
       const user    = await getUser(decoded.username);
       if (!user)                                  return res.status(404).json({ error: "User not found" });
-      if (user.stats.points < price)              return res.status(400).json({ error: "Not enough points" });
+      
+      const item = DEFAULT_ITEMS.find(i => i.id === itemId);
+      if (!item) return res.status(404).json({ error: "Item not found" });
+      
+      if (user.stats.points < item.price)              return res.status(400).json({ error: "Not enough points" });
       if (user.ownedCosmetics.includes(itemId))   return res.status(400).json({ error: "Already owned" });
-      user.stats.points -= price;
+      
+      user.stats.points -= item.price;
       user.ownedCosmetics.push(itemId);
       await saveUser(user);
       const { password: _, ...userWithoutPassword } = user;
@@ -507,7 +524,7 @@ export function registerRoutes(
             changed = true;
           }
         }
-        if (changed) io.to(room.roomId).emit("gameStateUpdate", room);
+        if (changed) engine.broadcastState(room.roomId);
       }
 
       const { password: _, ...userWithoutPassword } = user;

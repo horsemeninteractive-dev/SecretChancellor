@@ -367,7 +367,7 @@ export class GameEngine {
           abilityData.use = true;
         }
         break;
-      case 'Broker':
+      case 'Broker': {
         // Broker: Force re-nomination if current nominee is suspicious
         // But don't force re-nomination of your own choice if you are the President
         const chancellorCandidate = s.players.find(p => p.isChancellorCandidate);
@@ -376,7 +376,8 @@ export class GameEngine {
           abilityData.use = true;
         }
         break;
-      case 'Handler':
+      }
+      case 'Handler': {
         // Handler: Swap next two if the person immediately after current president is suspicious
         if (s.presidentialOrder) {
           const currentId = s.players[s.presidentIdx].id;
@@ -387,11 +388,13 @@ export class GameEngine {
           }
         }
         break;
-      case 'Auditor':
+      }
+      case 'Auditor': {
         // Auditor: Always useful to peek
         abilityData.use = true;
         break;
-      case 'Interdictor':
+      }
+      case 'Interdictor': {
         // Interdictor: Detain someone suspicious
         const eligibleTargets = s.players.filter(p => p.isAlive && p.id !== s.players[s.presidentIdx].id);
         const suspiciousTarget = eligibleTargets.find(p => getSuspicion(player, p.id) > 0.7);
@@ -400,6 +403,7 @@ export class GameEngine {
           abilityData.targetId = suspiciousTarget.id;
         }
         break;
+      }
     }
 
     this.handleTitleAbility(s, roomId, abilityData);
@@ -893,7 +897,7 @@ export class GameEngine {
           }
           break;
       }
-      this.io.emit("powerUsed", { role: state.titlePrompt.role });
+      this.io.to(roomId).emit("powerUsed", { role: state.titlePrompt.role });
       player.titleUsed = true;
     } else {
       // If NOT using the ability, some roles need fallback logic
@@ -967,7 +971,7 @@ export class GameEngine {
 
   handleVoteResult(state: GameState, roomId: string, ayeVotes: number, nayVotes: number): void {
     state.log.push(`DEBUG: handleVoteResult called. Aye: ${ayeVotes}, Nay: ${nayVotes}`);
-    state.phase = "Voting_Reveal" as any;
+    state.phase = "Voting_Reveal";
 
     if (!state.previousVotes) state.previousVotes = {};
     state.players.forEach(p => {
@@ -1018,7 +1022,7 @@ export class GameEngine {
 
     if (s.stateDirectives >= 3 && chancellor.role === "Overseer") {
       s.phase = "GameOver";
-      startActionTimerRef(this, roomId);
+      this.startActionTimer(roomId);
       s.winner = "State";
       s.winReason = "THE OVERSEER HAS ASCENDED";
       s.log.push("The Overseer was elected Chancellor! State Supremacy!");
@@ -1028,7 +1032,7 @@ export class GameEngine {
 
     s.phase = "Legislative_President";
     this.resetPlayerActions(s);
-    startActionTimerRef(this, roomId);
+    this.startActionTimer(roomId);
     s.electionTracker = 0;
     s.players.forEach(p => { p.isPresident = false; p.isChancellor = false; });
     president.isPresident   = true;
@@ -1630,11 +1634,11 @@ export class GameEngine {
 
       if (isWinner) {
         user.stats.wins++;
-        user.stats.elo    += state.mode === "Ranked" ? 25 : 0;
+        user.stats.elo    += state.mode === "Ranked" ? 20 : 0;
         user.stats.points += state.mode === "Ranked" ? 100 : 40;
       } else {
         user.stats.losses++;
-        user.stats.elo    = state.mode === "Ranked" ? Math.max(0, user.stats.elo - 15) : user.stats.elo;
+        user.stats.elo    = state.mode === "Ranked" ? Math.max(0, user.stats.elo - 20) : user.stats.elo;
         user.stats.points += state.mode === "Ranked" ? 25 : 10;
       }
 

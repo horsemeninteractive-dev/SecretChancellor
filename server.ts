@@ -24,7 +24,7 @@ async function startServer() {
   const engine = new GameEngine({ io });
   const userSockets = new Map<string, string>();
 
-  registerRoutes(app, io, engine.rooms, userSockets);
+  registerRoutes(app, io, engine, userSockets);
 
   io.on("connection", (socket) => {
     const getRoom = (): string | undefined =>
@@ -205,6 +205,17 @@ async function startServer() {
         }
       }
 
+      engine.broadcastState(roomId);
+    });
+
+    socket.on("startLobbyTimer", () => {
+      const roomId = getRoom();
+      if (!roomId) return;
+      const state = engine.rooms.get(roomId);
+      if (!state || state.phase !== "Lobby") return;
+      
+      state.lobbyTimer = 30;
+      state.isTimerActive = true;
       engine.broadcastState(roomId);
     });
 
@@ -518,6 +529,8 @@ async function startServer() {
       state.players = state.players.filter(p => !p.isAI);
       state.players.forEach(p => {
         p.role = undefined;
+        p.titleRole = undefined;
+        p.titleUsed = false;
         p.isAlive = true;
         p.isPresident = false;
         p.isChancellor = false;

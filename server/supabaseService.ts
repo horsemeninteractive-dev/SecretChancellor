@@ -1,15 +1,16 @@
 import { randomUUID } from "crypto";
 import { supabase, isSupabaseConfigured } from "../src/lib/supabase.ts";
+import { User, UserInternal } from "../src/types.ts";
 
 // In-memory fallback store (used when Supabase is not configured)
-const users: Map<string, any> = new Map();
+const users: Map<string, UserInternal> = new Map();
 
 // ---------------------------------------------------------------------------
 // Mapping helpers
 // ---------------------------------------------------------------------------
 
-function mapSupabaseToUser(data: any): any {
-  if (!data) return null;
+function mapSupabaseToUser(data: any): UserInternal {
+  if (!data) return null as any;
   
   // Migrate old stats keys if they exist
   const stats = data.stats || {};
@@ -44,7 +45,7 @@ function mapSupabaseToUser(data: any): any {
   };
 }
 
-function mapUserToSupabase(userData: any): any {
+function mapUserToSupabase(userData: UserInternal): any {
   return {
     id:               userData.id,
     username:         userData.username,
@@ -220,8 +221,9 @@ export async function saveUser(userData: any): Promise<void> {
     if (error) {
       console.error("Supabase Save Error:", JSON.stringify(error, null, 2));
     }
+  } else {
+    users.set(userData.username, userData);
   }
-  users.set(userData.username, userData);
 }
 
 // ---------------------------------------------------------------------------
