@@ -32,7 +32,7 @@ export const TitleAbilityModal = ({ role, gameState, onClose }: TitleAbilityModa
     <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
       <div className="bg-[#1a1a1a] border border-[#333] rounded-2xl p-6 max-w-md w-full shadow-2xl">
         <h2 className="text-2xl font-thematic text-white mb-4">Title Ability: {role}</h2>
-        <p className="text-gray-300 mb-6">
+        <div className="text-gray-300 mb-6">
           {role === 'Broker' && (
             <>
               Do you want to force a re-nomination?
@@ -47,7 +47,7 @@ export const TitleAbilityModal = ({ role, gameState, onClose }: TitleAbilityModa
           {role === 'Handler' && "Do you want to swap the next two players in the presidential order?"}
           {role === 'Auditor' && "Do you want to peek at the discard pile?"}
           {role === 'Interdictor' && "Select a player to detain for this round:"}
-        </p>
+        </div>
         
         {(role === 'Assassin' || role === 'Interdictor') && (
           <select 
