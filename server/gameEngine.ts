@@ -17,7 +17,7 @@ import {
   updateSuspicionFromNomination,
   updateSuspicionFromPolicyExpectation,
 } from "./suspicion.ts";
-import { getUserById, saveUser } from "./supabaseService.ts";
+import { getUserById, saveUser, incrementGlobalWin } from "./supabaseService.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,20 +144,18 @@ export class GameEngine {
 
     state.actionTimerEnd = Date.now() + state.actionTimer * 1000;
 
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       const s = this.rooms.get(roomId);
       if (!s || s.phase === "Lobby" || s.phase === "GameOver") return;
       s.actionTimerEnd = undefined;
-      this.handleActionTimerExpiry(s, roomId);
+      await this.handleActionTimerExpiry(s, roomId);
     }, state.actionTimer * 1000);
 
     this.actionTimers.set(roomId, timer);
   }
 
-  private handleActionTimerExpiry(s: GameState, roomId: string): void {
-    if (s.titlePrompt) {
-      this.handleTitleAbility(s, roomId, { use: false });
-    } else if (s.phase === "Election") {
+  private async handleActionTimerExpiry(s: GameState, roomId: string): Promise<void> {
+    if (s.phase === "Election") {
       const president = s.players[s.presidentIdx];
       const eligible = s.players.filter(p =>
         p.isAlive &&
@@ -210,7 +208,7 @@ export class GameEngine {
       this.broadcastState(roomId);
       this.processAITurns(roomId);
     } else if (s.titlePrompt) {
-      this.handleTitleAbility(s, roomId, { use: false });
+      await this.handleTitleAbility(s, roomId, { use: false });
     } else if (s.phase === "Legislative_Chancellor") {
       const chancellor = s.players.find(p => p.isChancellor);
       if (chancellor && s.chancellorPolicies.length > 0) {
@@ -272,7 +270,7 @@ export class GameEngine {
 
       // AI handle title ability
       if (s.titlePrompt) {
-        this.aiHandleTitleAbility(s, roomId);
+        await this.aiHandleTitleAbility(s, roomId);
       }
 
       // AI President response to Veto
@@ -321,7 +319,7 @@ export class GameEngine {
     target.isChancellorCandidate = true;
     this.resetPlayerActions(s);
     
-    const broker = s.players.find(p => p.titleRole === 'Broker' && !p.titleUsed);
+    const broker = s.players.find(p => p.titleRole === 'Broker' && !p.titleUsed && p.isAlive);
 
     if (broker && broker.id !== president.id) {
       s.titlePrompt = { playerId: broker.id, role: 'Broker', context: {}, nextPhase: 'Voting' };
@@ -338,7 +336,7 @@ export class GameEngine {
     this.processAITurns(roomId);
   }
 
-  private aiHandleTitleAbility(s: GameState, roomId: string): void {
+  private async aiHandleTitleAbility(s: GameState, roomId: string): Promise<void> {
     const prompt = s.titlePrompt;
     if (!prompt) return;
     const player = s.players.find(p => p.id === prompt.playerId);
@@ -346,7 +344,7 @@ export class GameEngine {
 
     const isPresident = player.id === s.players[s.presidentIdx].id;
     if (isPresident && (prompt.role === 'Broker' || prompt.role === 'Interdictor')) {
-      this.handleTitleAbility(s, roomId, { use: false });
+      await this.handleTitleAbility(s, roomId, { use: false });
       return;
     }
 
@@ -397,7 +395,7 @@ export class GameEngine {
       }
       case 'Interdictor': {
         // Interdictor: Detain someone suspicious
-        const eligibleTargets = s.players.filter(p => p.isAlive && p.id !== s.players[s.presidentIdx].id);
+        const eligibleTargets = s.players.filter(p => p.isAlive && p.id !== s.players[s.presidentIdx].id && p.id !== player.id);
         const suspiciousTarget = eligibleTargets.find(p => getSuspicion(player, p.id) > 0.7);
         if (suspiciousTarget) {
           abilityData.use = true;
@@ -407,7 +405,7 @@ export class GameEngine {
       }
     }
 
-    this.handleTitleAbility(s, roomId, abilityData);
+    await this.handleTitleAbility(s, roomId, abilityData);
   }
 
   // ─── AI: Voting phase ──────────────────────────────────────────────────────
@@ -815,10 +813,12 @@ export class GameEngine {
     isChaos: boolean = false,
     playerId?: string
   ): void {
+    console.log(`[DEBUG] triggerPolicyEnactment: roomId=${roomId}, played=${played}, playerId=${playerId}`);
     state.lastEnactedPolicy = { type: played, timestamp: Date.now(), playerId };
     this.broadcastState(roomId);
 
     setTimeout(async () => {
+      console.log(`[DEBUG] triggerPolicyEnactment timeout: roomId=${roomId}, isPaused=${state.isPaused}`);
       if (state.isPaused) return;
 
       if (played === "Civil") {
@@ -833,7 +833,9 @@ export class GameEngine {
       updateSuspicionFromPolicy(state, played);
       updateSuspicionFromPolicyExpectation(state, played);
 
+      console.log(`[DEBUG] triggerPolicyEnactment: calling checkVictory`);
       await this.checkVictory(state, roomId);
+      console.log(`[DEBUG] triggerPolicyEnactment: checkVictory completed, phase=${state.phase}`);
       if (state.phase !== "GameOver") {
         if (isChaos) {
           this.nextPresident(state, roomId);
@@ -872,7 +874,7 @@ export class GameEngine {
   }
 
   checkAuditorTrigger(state: GameState): void {
-    const auditor = state.players.find(p => p.titleRole === 'Auditor' && !p.titleUsed);
+    const auditor = state.players.find(p => p.titleRole === 'Auditor' && !p.titleUsed && p.isAlive);
     if (auditor) {
       state.titlePrompt = {
         playerId: auditor.id,
@@ -882,7 +884,7 @@ export class GameEngine {
     }
   }
 
-  handleTitleAbility(state: GameState, roomId: string, abilityData: any): void {
+  async handleTitleAbility(state: GameState, roomId: string, abilityData: any): Promise<void> {
     const player = state.players.find(p => p.id === state.titlePrompt?.playerId);
     if (!player || !state.titlePrompt) return;
 
@@ -902,6 +904,14 @@ export class GameEngine {
             target.isPresidentialCandidate = false;
             target.isChancellorCandidate = false;
             state.log.push(`${player.name} (Assassin) executed ${target.name}.`);
+            
+            if (target.role === 'Overseer') {
+              state.phase = "GameOver";
+              state.winner = "Civil";
+              state.winReason = "OVERSEER ASSASSINATED";
+              state.log.push("The Overseer has been assassinated! Civils win!");
+              await this.updateUserStats(state, "Civil");
+            }
           }
           break;
         case 'Strategist':
@@ -944,7 +954,7 @@ export class GameEngine {
         case 'Interdictor':
           const detainedTarget = state.players.find(p => p.id === abilityData.targetId);
           const president = state.players[state.presidentIdx];
-          if (detainedTarget && detainedTarget.isAlive && detainedTarget.id !== president.id) {
+          if (detainedTarget && detainedTarget.isAlive && detainedTarget.id !== president.id && detainedTarget.id !== player.id) {
             state.detainedPlayerId = detainedTarget.id;
             state.log.push(`${player.name} (Interdictor) detained ${detainedTarget.name} for this round.`);
           }
@@ -1015,7 +1025,9 @@ export class GameEngine {
     }
 
     if (role === 'Assassin') {
-      state.phase = 'Legislative_Chancellor';
+      if (state.phase !== 'GameOver') {
+        state.phase = 'Legislative_Chancellor';
+      }
       this.checkRoundEnd(state, roomId);
     }
 
@@ -1110,7 +1122,7 @@ export class GameEngine {
     }
     
     // Check for Strategist
-    if (president.titleRole === 'Strategist' && !president.titleUsed) {
+    if (president.titleRole === 'Strategist' && !president.titleUsed && president.isAlive) {
         s.titlePrompt = {
             playerId: president.id,
             role: 'Strategist',
@@ -1118,6 +1130,8 @@ export class GameEngine {
             nextPhase: 'Legislative_President'
         };
         s.drawnPolicies = []; // Wait for ability
+        this.startActionTimer(roomId);
+        this.broadcastState(roomId);
     } else {
         s.drawnPolicies = s.deck.splice(0, 3);
     }
@@ -1177,6 +1191,10 @@ export class GameEngine {
     if (!presidentDeclared || !chancellorDeclared) return;
 
     this.checkAuditorTrigger(state);
+    if (state.titlePrompt) {
+      this.startActionTimer(roomId);
+      this.broadcastState(roomId);
+    }
 
     // Both have declared — capture round history now that we have all the data
     if (state.lastEnactedPolicy && !state.lastEnactedPolicy.historyCaptured) {
@@ -1184,6 +1202,8 @@ export class GameEngine {
       state.lastEnactedPolicy.historyCaptured = true;
       state.lastGovernmentVotes = undefined; // safe to clear now
     }
+
+    if (state.titlePrompt && state.titlePrompt.nextPhase) return;
 
     // Assassin power
     const president = state.players[state.presidentIdx];
@@ -1311,6 +1331,10 @@ export class GameEngine {
       this.checkAuditorTrigger(state);
       state.chancellorPolicies = [];
       state.vetoRequested = false;
+      if (state.titlePrompt) {
+        this.startActionTimer(roomId);
+        this.broadcastState(roomId);
+      }
 
       // Record vetoed government in round history
       const presPlayer = state.players.find(p => p.isPresident);
@@ -1428,8 +1452,8 @@ export class GameEngine {
     
     if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: President index was ${oldIdx}, now ${state.presidentIdx}, player: ${state.players[state.presidentIdx].name}`);
 
-    const handler = state.players.find(p => p.titleRole === 'Handler' && !p.titleUsed);
-    const interdictor = state.players.find(p => p.titleRole === 'Interdictor' && !p.titleUsed);
+    const handler = state.players.find(p => p.titleRole === 'Handler' && !p.titleUsed && p.isAlive);
+    const interdictor = state.players.find(p => p.titleRole === 'Interdictor' && !p.titleUsed && p.isAlive);
     
     if (process.env.NODE_ENV !== 'production') state.log.push(`DEBUG: Handler found: ${handler?.name}, Interdictor found: ${interdictor?.name}`);
 
@@ -1450,7 +1474,7 @@ export class GameEngine {
         playerId: interdictor.id,
         role: 'Interdictor',
         context: {},
-        nextPhase: 'Voting'
+        nextPhase: 'Election'
       };
       this.startActionTimer(roomId);
       this.broadcastState(roomId);
@@ -1667,20 +1691,26 @@ export class GameEngine {
   // ═══════════════════════════════════════════════════════════════════════════
 
   async checkVictory(state: GameState, roomId: string): Promise<void> {
+    console.log(`[DEBUG] checkVictory: roomId=${roomId}, phase=${state.phase}, civil=${state.civilDirectives}, state=${state.stateDirectives}`);
     if (state.phase === "GameOver") return;
     if (state.civilDirectives >= 5) {
+      console.log(`[DEBUG] checkVictory: Civil victory`);
       state.phase    = "GameOver";
       state.winner = "Civil";
       state.winReason = "CHARTER RESTORED";
       state.log.push("5 Civil directives enacted! Charter Restored!");
       await this.updateUserStats(state, "Civil");
+      await incrementGlobalWin("Civil");
     } else if (state.stateDirectives >= 6) {
+      console.log(`[DEBUG] checkVictory: State victory`);
       state.phase    = "GameOver";
       state.winner = "State";
       state.winReason = "STATE SUPREMACY";
       state.log.push("6 State directives enacted! State Supremacy!");
       await this.updateUserStats(state, "State");
+      await incrementGlobalWin("State");
     }
+    console.log(`[DEBUG] checkVictory: completed`);
   }
 
   async updateUserStats(state: GameState, winningSide: "Civil" | "State"): Promise<void> {

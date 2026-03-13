@@ -81,6 +81,37 @@ export async function getLeaderboard(): Promise<any[]> {
     .slice(0, 50);
 }
 
+export async function getGlobalStats(): Promise<{ civilWins: number; stateWins: number }> {
+  if (isSupabaseConfigured) {
+    const { data, error } = await supabase
+      .from("global_stats")
+      .select("civil_wins, state_wins")
+      .eq("id", 1)
+      .single();
+    if (error || !data) return { civilWins: 0, stateWins: 0 };
+    return { civilWins: data.civil_wins, stateWins: data.state_wins };
+  }
+  return { civilWins: 0, stateWins: 0 };
+}
+
+export async function incrementGlobalWin(faction: 'Civil' | 'State'): Promise<void> {
+  if (isSupabaseConfigured) {
+    const column = faction === 'Civil' ? 'civil_wins' : 'state_wins';
+    const { data, error } = await supabase
+      .from("global_stats")
+      .select(column)
+      .eq("id", 1)
+      .single();
+    
+    if (data) {
+        await supabase
+          .from("global_stats")
+          .update({ [column]: data[column] + 1 })
+          .eq("id", 1);
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Read operations
 // ---------------------------------------------------------------------------

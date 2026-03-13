@@ -19,6 +19,7 @@ import { getBackgroundTexture } from '../lib/cosmetics';
 export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpenProfile, playSound }) => {
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [rejoinInfo, setRejoinInfo] = useState<{ canRejoin: boolean; roomId?: string; roomName?: string; mode?: string } | null>(null);
+  const [globalStats, setGlobalStats] = useState<{ civilWins: number; stateWins: number }>({ civilWins: 0, stateWins: 0 });
   const [isCreating, setIsCreating] = useState(false);
   const [isLeaderboardOpen, setIsLeaderboardOpen] = useState(false);
   const [newRoomName, setNewRoomName] = useState('');
@@ -44,9 +45,23 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
     }
   };
 
+  const fetchGlobalStats = async () => {
+    try {
+      const response = await fetch('/api/global-stats');
+      const data = await response.json();
+      setGlobalStats(data);
+    } catch (err) {
+      console.error('Failed to fetch global stats', err);
+    }
+  };
+
   useEffect(() => {
     fetchRooms();
-    const interval = setInterval(fetchRooms, 3000);
+    fetchGlobalStats();
+    const interval = setInterval(() => {
+      fetchRooms();
+      fetchGlobalStats();
+    }, 3000);
     return () => clearInterval(interval);
   }, []);
 
@@ -138,22 +153,41 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
       </header>
 
       <main className="flex-1 max-w-6xl w-full mx-auto p-[4vw] flex flex-col gap-[4vh]">
-        {/* Actions */}
+        {/* Actions (Header/Text) */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div>
             <h2 className="text-responsive-2xl sm:text-responsive-3xl font-thematic text-white tracking-wide">Available Assemblies</h2>
             <p className="text-responsive-xs text-[#666] mt-1">Join an existing session or convene your own.</p>
           </div>
-          <button 
-            onClick={() => {
-              playSound('click');
-              setIsCreating(true);
-            }}
-            className="w-full sm:w-auto flex items-center justify-center gap-2 bg-white text-black px-[4vw] py-[1.5vh] rounded-2xl font-thematic text-responsive-xl hover:bg-gray-200 transition-all shadow-xl shadow-white/5"
-          >
-            <Plus className="w-[2vh] h-[2vh]" />
-            Start New Assembly
-          </button>
+        </div>
+
+        {/* Start New Assembly Button */}
+        <button 
+          onClick={() => {
+            playSound('click');
+            setIsCreating(true);
+          }}
+          className="w-full flex items-center justify-center gap-2 bg-white text-black px-[4vw] py-[1.5vh] rounded-2xl font-thematic text-responsive-xl hover:bg-gray-200 transition-all shadow-xl shadow-white/5"
+        >
+          <Plus className="w-[2vh] h-[2vh]" />
+          Start New Assembly
+        </button>
+
+        {/* Swing Meter */}
+        <div className="bg-[#1a1a1a] border border-[#222] rounded-3xl p-[2vh]">
+            <div className="flex items-center justify-between text-responsive-xs font-mono uppercase tracking-widest mb-2">
+                <span className="text-blue-500">Civil</span>
+                <span className="font-thematic text-responsive-2xl">
+                    <span className="text-blue-500">{globalStats.civilWins}</span>
+                    <span className="text-white">v</span>
+                    <span className="text-red-500">{globalStats.stateWins}</span>
+                </span>
+                <span className="text-red-500">State</span>
+            </div>
+            <div className="w-full h-4 bg-[#141414] rounded-full overflow-hidden flex">
+                <div className="bg-blue-600 h-full" style={{ width: `${(globalStats.civilWins / (globalStats.civilWins + globalStats.stateWins || 1)) * 100}%` }}></div>
+                <div className="bg-red-600 h-full" style={{ width: `${(globalStats.stateWins / (globalStats.civilWins + globalStats.stateWins || 1)) * 100}%` }}></div>
+            </div>
         </div>
 
         {/* Rejoin Banner */}
@@ -283,6 +317,7 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
             ))
           )}
         </div>
+
         {isLeaderboardOpen && (
           <LeaderboardModal user={user} onClose={() => setIsLeaderboardOpen(false)} />
         )}

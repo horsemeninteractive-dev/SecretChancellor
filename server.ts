@@ -463,9 +463,11 @@ async function startServer() {
     });
 
     socket.on("chancellorPlay", (idx) => {
+      console.log(`[DEBUG] chancellorPlay received: idx=${idx}, roomId=${getRoom()}`);
       const roomId = getRoom();
       if (!roomId) return;
       const state = engine.rooms.get(roomId);
+      console.log(`[DEBUG] chancellorPlay state: phase=${state?.phase}, chancellorId=${state?.chancellorId}, policies=${state?.chancellorPolicies.length}`);
       if (!state || state.phase !== "Legislative_Chancellor") return;
       if (state.chancellorId !== socket.id) return;
       const player = state.players.find(p => p.id === socket.id);
@@ -476,7 +478,10 @@ async function startServer() {
 
       const played = state.chancellorPolicies.splice(idx, 1)[0];
       // Guard: splice on a partially-cleared array can return undefined
-      if (!played) return;
+      if (!played) {
+        console.log(`[DEBUG] chancellorPlay: played is undefined for idx=${idx}`);
+        return;
+      }
       state.discard.push(...state.chancellorPolicies);
       state.chancellorPolicies = [];
       engine.triggerPolicyEnactment(state, roomId, played, false, state.chancellorId);
@@ -534,12 +539,12 @@ async function startServer() {
       await engine.handleExecutiveAction(state, roomId, targetId);
     });
 
-    socket.on("useTitleAbility", (abilityData) => {
+    socket.on("useTitleAbility", async (abilityData) => {
       const roomId = getRoom();
       if (!roomId) return;
       const state = engine.rooms.get(roomId);
       if (!state || !state.titlePrompt || state.titlePrompt.playerId !== socket.id) return;
-      engine.handleTitleAbility(state, roomId, abilityData);
+      await engine.handleTitleAbility(state, roomId, abilityData);
     });
 
     socket.on("vetoRequest", () => {

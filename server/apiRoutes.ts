@@ -20,6 +20,7 @@ import {
   isFriend,
   removeFriend,
   getLeaderboard,
+  getGlobalStats,
 } from "./supabaseService.ts";
 
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -293,6 +294,11 @@ export function registerRoutes(
   app.get("/api/leaderboard", async (_req: Request, res: Response) => {
     const leaderboard = await getLeaderboard();
     res.json(leaderboard.map(({ password: _, ...u }) => u));
+  });
+
+  app.get("/api/global-stats", async (_req: Request, res: Response) => {
+    const stats = await getGlobalStats();
+    res.json(stats);
   });
 
   app.get("/api/rejoin-info", (req: Request, res: Response) => {
