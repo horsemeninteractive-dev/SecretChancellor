@@ -180,13 +180,25 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                       )}
                     </div>
 
-                    {/* Mobile dead/detained badge */}
-                    {!p.isAlive && (
-                      <span className={cn("sm:hidden px-1 py-0.5 bg-red-900/20 text-red-500 font-mono uppercase rounded text-[6px]", stream && isVideoActive && 'hidden')}>Dead</span>
-                    )}
-                    {gameState.detainedPlayerId === p.id && (
-                      <span className={cn("sm:hidden px-1 py-0.5 bg-purple-900/20 text-purple-500 font-mono uppercase rounded text-[6px]", stream && isVideoActive && 'hidden')}>Detained</span>
-                    )}
+                    {/* Mobile badges */}
+                    <div className={cn("sm:hidden flex flex-wrap gap-0.5 mt-0.5 justify-center", stream && isVideoActive && 'hidden')}>
+                      {!p.isAlive && (
+                        <span className="px-1 py-0.5 bg-red-900/20 text-red-500 font-mono uppercase rounded text-[6px]">Dead</span>
+                      )}
+                      {gameState.detainedPlayerId === p.id && (
+                        <span className="px-1 py-0.5 bg-purple-900/20 text-purple-500 font-mono uppercase rounded text-[6px]">Detained</span>
+                      )}
+                      {(p.isPresident || p.isPresidentialCandidate) && (
+                        <span className="px-1 py-0.5 bg-yellow-900/20 text-yellow-500 font-mono uppercase rounded text-[6px]">
+                          {p.isPresident ? 'Pres' : 'Cand'}
+                        </span>
+                      )}
+                      {(p.isChancellor || p.isChancellorCandidate) && (
+                        <span className="px-1 py-0.5 bg-blue-900/20 text-blue-500 font-mono uppercase rounded text-[6px]">
+                          {p.isChancellor ? 'Chan' : 'Nom'}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
 
@@ -206,7 +218,7 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
               </motion.div>
 
               {/* Nominate overlay */}
-              {gameState.phase === 'Election' && isPresidentialCandidate && p.id !== socket.id && p.isAlive && (() => {
+              {gameState.phase === 'Nominate_Chancellor' && isPresidentialCandidate && p.id !== socket.id && p.isAlive && (() => {
                 const aliveCount = gameState.players.filter(pl => pl.isAlive).length;
                 const isEligible = !p.wasChancellor && !(aliveCount > 5 && p.wasPresident) && p.id !== gameState.detainedPlayerId && p.id !== gameState.rejectedChancellorId;
                 if (p.id === gameState.rejectedChancellorId) {

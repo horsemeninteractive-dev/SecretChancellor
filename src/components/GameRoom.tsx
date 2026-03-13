@@ -318,9 +318,10 @@ export const GameRoom = ({
     if (prevAliveCount.current > 0 && currentAliveCount < prevAliveCount.current) playSound('death');
     prevAliveCount.current = currentAliveCount;
 
-    if (prevPhase.current === 'Voting' && gameState.phase !== 'Voting') {
+    if ((prevPhase.current === 'Voting' || prevPhase.current === 'Voting_Reveal') && 
+        gameState.phase !== 'Voting' && gameState.phase !== 'Voting_Reveal') {
       if (gameState.phase === 'Legislative_President') playSound('election_passed');
-      else if (gameState.phase === 'Election') playSound('election_failed');
+      else if (gameState.phase === 'Nominate_Chancellor') playSound('election_failed');
     }
 
     if (gameState.civilDirectives > prevCivilDirectives.current) speak('Charter secured.');

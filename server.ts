@@ -359,7 +359,6 @@ async function startServer() {
 
       const president = state.players[state.presidentIdx];
       if (president.id !== socket.id || !president.isAlive || president.hasActed) return;
-      president.hasActed = true;
 
       const chancellor = state.players.find(p => p.id === chancellorId);
       if (!chancellor || !chancellor.isAlive || chancellor.id === president.id) return;
@@ -380,27 +379,9 @@ async function startServer() {
         return;
       }
 
-      chancellor.isChancellorCandidate = true;
-      engine.resetPlayerActions(state);
-      
-      const broker = state.players.find(p => p.titleRole === 'Broker' && !p.titleUsed);
-
-      if (broker) {
-        state.titlePrompt = {
-          playerId: broker.id,
-          role: 'Broker',
-          context: {},
-          nextPhase: 'Voting'
-        };
-        state.phase = 'Nomination_Review';
-      } else {
-        state.phase = "Voting";
-      }
-      
-      engine.startActionTimer(roomId);
-      state.log.push(`${president.name} nominated ${chancellor.name} for Chancellor.`);
-      engine.broadcastState(roomId);
-      engine.processAITurns(roomId);
+      // hasActed is set inside engine.nominateChancellor — do NOT set it here
+      // or the engine guard will see it as already acted and silently abort.
+      engine.nominateChancellor(state, roomId, chancellorId, socket.id);
     });
 
     socket.on("vote", (vote) => {
