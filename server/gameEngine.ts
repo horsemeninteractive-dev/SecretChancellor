@@ -1045,6 +1045,13 @@ export class GameEngine {
       this.checkRoundEnd(state, roomId);
     }
 
+    // Auditor is triggered from inside checkRoundEnd, which then returns early while
+    // the prompt is pending. Once the ability resolves, checkRoundEnd must be called
+    // again so round progression (executive actions / nextPresident) can continue.
+    if (role === 'Auditor') {
+      this.checkRoundEnd(state, roomId);
+    }
+
     this.broadcastState(roomId);
     this.processAITurns(roomId);
   }
