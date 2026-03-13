@@ -118,6 +118,14 @@ export const CHAT = {
     "I'm confident in {name}'s alignment.",
     "{name} is a true patriot of the Charter.",
   ],
+  // Early game support when no actions have occurred
+  neutralSupport: [
+    "I'm willing to give {name} a chance.",
+    "{name} seems like a reasonable choice for now.",
+    "Let's see what {name} can do.",
+    "I don't have any reason to doubt {name} yet.",
+    "A fresh start with {name} might be what we need.",
+  ],
   // General game banter
   banter: [
     "The stakes are rising. We must stay vigilant.",

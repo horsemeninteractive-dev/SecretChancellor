@@ -655,7 +655,15 @@ export class GameEngine {
               } else if (suspicion > 0.55 && !isTeammate) {
                 lines = CHAT.suspiciousNominee;
               } else if (suspicion < 0.25 || isTeammate) {
-                lines = CHAT.praisingCivil;
+                // Only praise if some actions have actually occurred (policies enacted)
+                // or if we're past the very early game.
+                const hasHistory = state.civilDirectives > 0 || state.stateDirectives > 0;
+                if (hasHistory || state.round > 2) {
+                  lines = CHAT.praisingCivil;
+                } else {
+                  // @ts-ignore - neutralSupport is added to CHAT
+                  lines = CHAT.neutralSupport;
+                }
               } else {
                 lines = CHAT.banter;
               }
@@ -982,10 +990,8 @@ export class GameEngine {
       if (state.phase === phaseBefore) {
         if (nextPhase) {
           state.phase = nextPhase;
-          if (state.phase === 'Voting') {
-            this.startActionTimer(roomId);
-            this.processAITurns(roomId);
-          }
+          this.startActionTimer(roomId);
+          this.processAITurns(roomId);
         } else if (state.phase === 'Nomination_Review') {
           state.phase = 'Voting';
           this.startActionTimer(roomId);
@@ -1049,7 +1055,7 @@ export class GameEngine {
       s.actionTimerEnd = undefined;
 
       if (ayeVotes > nayVotes) {
-        this.handleElectionPassed(s, roomId, voteInfo);
+        await this.handleElectionPassed(s, roomId, voteInfo);
       } else {
         await this.handleElectionFailed(s, roomId, voteInfo);
       }
@@ -1060,7 +1066,7 @@ export class GameEngine {
     }, 6000);
   }
 
-  private handleElectionPassed(s: GameState, roomId: string, voteInfo: string): void {
+  private async handleElectionPassed(s: GameState, roomId: string, voteInfo: string): Promise<void> {
     s.log.push(`The election passed! ${voteInfo}`);
     const chancellor = s.players.find(p => p.isChancellorCandidate)!;
     const president  = s.players.find(p => p.isPresidentialCandidate)!;
@@ -1071,7 +1077,7 @@ export class GameEngine {
       s.winner = "State";
       s.winReason = "THE OVERSEER HAS ASCENDED";
       s.log.push("The Overseer was elected Chancellor! State Supremacy!");
-      this.updateUserStats(s, "State");
+      await this.updateUserStats(s, "State");
       return;
     }
 
@@ -1091,10 +1097,13 @@ export class GameEngine {
 
     updateSuspicionFromNomination(s, president.id, chancellor.id);
 
-    // Ensure we have 3 cards to draw (should already be true due to pre-round reshuffle)
+    // Ensure we have at least 4 cards to draw (important for Strategist)
     if (s.deck.length < 4) {
-      s.deck = shuffle([...s.deck, ...s.discard]);
-      s.discard = [];
+      if (s.discard.length > 0) {
+        s.log.push("Reshuffling discard pile to ensure enough directives...");
+        s.deck = shuffle([...s.deck, ...s.discard]);
+        s.discard = [];
+      }
     }
     
     // Check for Strategist
