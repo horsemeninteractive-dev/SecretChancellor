@@ -21,6 +21,11 @@ export const DEFAULT_ITEMS: CosmeticItem[] = [
   { id: 'frame-inferno', name: 'Eternal Inferno', price: 4000, type: 'frame', description: 'Animated flames licking the edges of your profile.' },
   { id: 'frame-glitch', name: 'System Glitch', price: 3000, type: 'frame', description: 'Digital artifacts and chromatic aberration.' },
   { id: 'frame-royal', name: 'Royal Crest', price: 5000, type: 'frame', description: 'Ornate silver and sapphire decorations.' },
+  { id: 'frame-common-basic', name: 'Basic Border', price: 0, type: 'frame', description: 'A simple, clean border.' },
+  { id: 'frame-uncommon-bronze', name: 'Bronze Edge', price: 500, type: 'frame', description: 'A sturdy bronze-tinted frame.' },
+  { id: 'frame-rare-silver', name: 'Silver Lining', price: 1500, type: 'frame', description: 'A polished silver frame for the refined.' },
+  { id: 'frame-epic-violet', name: 'Violet Aura', price: 2500, type: 'frame', description: 'A mystical violet glow.' },
+  { id: 'frame-legendary-cosmic', name: 'Cosmic Vortex', price: 4000, type: 'frame', description: 'LEGENDARY: A swirling cosmic vortex that bends space and time.' },
 
   // Policy Cards
   { id: 'policy-vintage', name: 'Vintage Press', price: 1200, type: 'policy', description: 'A classic, weathered newspaper aesthetic.' },

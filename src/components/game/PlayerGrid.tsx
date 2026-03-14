@@ -144,7 +144,12 @@ export const PlayerGrid = ({ gameState, me, speakingPlayers, playSound, token, s
                           p.activeFrame === 'frame-blue' && 'border-blue-500',
                           p.activeFrame === 'frame-rainbow' && 'border-purple-500',
                           p.activeFrame === 'frame-neon' && 'border-emerald-500',
-                          p.activeFrame === 'frame-shadow' && 'border-gray-500'
+                          p.activeFrame === 'frame-shadow' && 'border-gray-500',
+                          p.activeFrame === 'frame-common-basic' && 'border-gray-400',
+                          p.activeFrame === 'frame-uncommon-bronze' && 'border-amber-700',
+                          p.activeFrame === 'frame-rare-silver' && 'border-gray-300',
+                          p.activeFrame === 'frame-epic-violet' && 'border-purple-600',
+                          p.activeFrame === 'frame-legendary-cosmic' && 'border-pink-500'
                         )} />
                       )}
                     </div>

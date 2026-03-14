@@ -14,6 +14,11 @@ export const getFrameStyles = (id: string) => {
     case 'frame-glitch': return "shadow-[2px_2px_0_rgba(236,72,153,0.5),-2px_-2px_0_rgba(6,182,212,0.5)]";
     case 'frame-royal': return "shadow-[0_0_15px_rgba(129,140,248,0.4)] before:content-[''] before:absolute before:top-[-8px] before:left-1/2 before:-translate-x-1/2 before:w-4 before:h-4 before:bg-indigo-400 before:rotate-45";
     case 'frame-pass-0': return "shadow-[0_0_20px_rgba(168,85,247,0.6)] animate-spin-slow animate-pulse";
+    case 'frame-common-basic': return "border-2 border-gray-400";
+    case 'frame-uncommon-bronze': return "shadow-[inset_0_0_10px_rgba(202,138,4,0.5)] border-2 border-amber-700";
+    case 'frame-rare-silver': return "isolate overflow-hidden shadow-[inset_0_0_10px_rgba(156,163,175,0.5)] border-2 border-gray-300 after:content-[''] after:absolute after:top-0 after:-left-full after:w-[200%] after:h-full after:bg-gradient-to-r after:from-transparent after:via-white/50 after:to-transparent after:animate-shine";
+    case 'frame-epic-violet': return "shadow-[inset_0_0_15px_rgba(147,51,234,0.6)] border-2 border-purple-600";
+    case 'frame-legendary-cosmic': return "shadow-[0_0_20px_rgba(236,72,153,0.6),0_0_20px_rgba(6,182,212,0.6)] before:content-[''] before:absolute before:inset-0 before:border-2 before:border-purple-400 before:rounded-[50%/80%] before:animate-[spin_4s_linear_infinite,pulse_2s_ease-in-out_infinite] before:opacity-50 after:content-[''] after:absolute after:inset-0 after:border-2 after:border-pink-400 after:rounded-[80%/50%] after:animate-[spin-reverse_4s_linear_infinite,pulse_2s_ease-in-out_infinite_1s] after:opacity-50";
     default: return "";
   }
 };
