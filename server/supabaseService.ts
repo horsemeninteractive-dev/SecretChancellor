@@ -1,6 +1,11 @@
 import { randomUUID } from "crypto";
 import { supabase, isSupabaseConfigured } from "../src/lib/supabase.ts";
+import { supabaseAdmin, isSupabaseAdminConfigured } from "./supabaseAdmin.ts";
 import { User, UserInternal } from "../src/types.ts";
+
+// Use admin client if available, fallback to regular client
+const db = isSupabaseAdminConfigured ? supabaseAdmin : supabase;
+const isConfigured = isSupabaseAdminConfigured || isSupabaseConfigured;
 
 // In-memory fallback store (used when Supabase is not configured)
 const users: Map<string, UserInternal> = new Map();
@@ -67,8 +72,8 @@ function mapUserToSupabase(userData: UserInternal): any {
 }
 
 export async function getLeaderboard(): Promise<any[]> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("users")
       .select("*")
       .order("stats->elo", { ascending: false })
@@ -82,8 +87,8 @@ export async function getLeaderboard(): Promise<any[]> {
 }
 
 export async function getGlobalStats(): Promise<{ civilWins: number; stateWins: number }> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("global_stats")
       .select("civil_wins, state_wins")
       .eq("id", 1)
@@ -95,16 +100,16 @@ export async function getGlobalStats(): Promise<{ civilWins: number; stateWins: 
 }
 
 export async function incrementGlobalWin(faction: 'Civil' | 'State'): Promise<void> {
-  if (isSupabaseConfigured) {
+  if (isConfigured) {
     const column = faction === 'Civil' ? 'civil_wins' : 'state_wins';
-    const { data, error } = await supabase
+    const { data, error } = await db
       .from("global_stats")
       .select(column)
       .eq("id", 1)
       .single();
     
     if (data) {
-        await supabase
+        await db
           .from("global_stats")
           .update({ [column]: data[column] + 1 })
           .eq("id", 1);
@@ -117,8 +122,8 @@ export async function incrementGlobalWin(faction: 'Civil' | 'State'): Promise<vo
 // ---------------------------------------------------------------------------
 
 export async function getUser(username: string): Promise<any> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("users")
       .select("*")
       .eq("username", username)
@@ -130,8 +135,8 @@ export async function getUser(username: string): Promise<any> {
 }
 
 export async function getUserById(id: string): Promise<any> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("users")
       .select("*")
       .eq("id", id)
@@ -146,8 +151,8 @@ export async function getUserById(id: string): Promise<any> {
 }
 
 export async function getUserByGoogleId(googleId: string): Promise<any> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("users")
       .select("*")
       .eq("google_id", googleId)
@@ -162,8 +167,8 @@ export async function getUserByGoogleId(googleId: string): Promise<any> {
 }
 
 export async function getUserByDiscordId(discordId: string): Promise<any> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("users")
       .select("*")
       .eq("discord_id", discordId)
@@ -182,8 +187,8 @@ export async function getUserByDiscordId(discordId: string): Promise<any> {
 // ---------------------------------------------------------------------------
 
 export async function getFriends(userId: string): Promise<any[]> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("friends")
       .select("*, user_id_1, user_id_2")
       .or(`user_id_1.eq.${userId},user_id_2.eq.${userId}`)
@@ -191,7 +196,7 @@ export async function getFriends(userId: string): Promise<any[]> {
     if (error) return [];
     
     const friendIds = data.map(f => f.user_id_1 === userId ? f.user_id_2 : f.user_id_1);
-    const { data: friendsData, error: friendsError } = await supabase
+    const { data: friendsData, error: friendsError } = await db
       .from("users")
       .select("*")
       .in("id", friendIds);
@@ -202,16 +207,16 @@ export async function getFriends(userId: string): Promise<any[]> {
 }
 
 export async function sendFriendRequest(userId1: string, userId2: string): Promise<void> {
-  if (isSupabaseConfigured) {
-    await supabase
+  if (isConfigured) {
+    await db
       .from("friends")
       .insert({ user_id_1: userId1, user_id_2: userId2, status: 'pending' });
   }
 }
 
 export async function acceptFriendRequest(userId1: string, userId2: string): Promise<void> {
-  if (isSupabaseConfigured) {
-    await supabase
+  if (isConfigured) {
+    await db
       .from("friends")
       .update({ status: 'accepted' })
       .or(`and(user_id_1.eq.${userId1},user_id_2.eq.${userId2}),and(user_id_1.eq.${userId2},user_id_2.eq.${userId1})`);
@@ -219,8 +224,8 @@ export async function acceptFriendRequest(userId1: string, userId2: string): Pro
 }
 
 export async function isFriend(userId1: string, userId2: string): Promise<boolean> {
-  if (isSupabaseConfigured) {
-    const { data, error } = await supabase
+  if (isConfigured) {
+    const { data, error } = await db
       .from("friends")
       .select("*")
       .or(`and(user_id_1.eq.${userId1},user_id_2.eq.${userId2}),and(user_id_1.eq.${userId2},user_id_2.eq.${userId1})`)
@@ -232,8 +237,8 @@ export async function isFriend(userId1: string, userId2: string): Promise<boolea
 }
 
 export async function removeFriend(userId1: string, userId2: string): Promise<void> {
-  if (isSupabaseConfigured) {
-    await supabase
+  if (isConfigured) {
+    await db
       .from("friends")
       .delete()
       .or(`and(user_id_1.eq.${userId1},user_id_2.eq.${userId2}),and(user_id_1.eq.${userId2},user_id_2.eq.${userId1})`);
@@ -245,8 +250,8 @@ export async function removeFriend(userId1: string, userId2: string): Promise<vo
 // ---------------------------------------------------------------------------
 
 export async function saveUser(userData: any): Promise<void> {
-  if (isSupabaseConfigured) {
-    const { error } = await supabase
+  if (isConfigured) {
+    const { error } = await db
       .from("users")
       .upsert(mapUserToSupabase(userData));
     if (error) {
