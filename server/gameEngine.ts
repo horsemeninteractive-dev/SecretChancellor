@@ -756,11 +756,11 @@ export class GameEngine {
         if (st.stateDirectives >= 5) st.vetoUnlocked = true;
       }
 
-      // Mark tracker as updated and refresh timestamp — clients use this
-      // timestamp transition to trigger the declaration prompt.
+      // Mark tracker as updated. Clients watch trackerReady directly to
+      // trigger the declaration prompt. Do NOT update timestamp here — the
+      // animation key is derived from it and would re-trigger the reveal.
       if (st.lastEnactedPolicy) {
         st.lastEnactedPolicy.trackerReady = true;
-        st.lastEnactedPolicy.timestamp    = Date.now();
       }
 
       updateSuspicionFromPolicy(st, policy);
@@ -864,9 +864,9 @@ export class GameEngine {
       let lie = false;
       if (player.role !== "Civil") {
         if      (player.personality === "Deceptive")  lie = true;
-        else if (player.personality === "Aggressive")  lie = Math.random() > 0.2;
-        else if (player.personality === "Strategic")   lie = (s.stateDirectives ?? 0) >= 2;
-        else if (player.personality === "Chaotic")     lie = Math.random() > 0.5;
+        else if (player.personality === "Aggressive")  lie = Math.random() > 0.15;
+        else if (player.personality === "Strategic")   lie = (s.stateDirectives ?? 0) >= 1;
+        else if (player.personality === "Chaotic")     lie = Math.random() > 0.3;
       }
       if (lie && civ > 0) { civ--; sta++; }
     }
@@ -1563,7 +1563,7 @@ export class GameEngine {
     if (ai.role === "Civil" && ai.suspicion) {
       const ps  = getSuspicion(ai, president.id);
       const cs  = chancellor ? getSuspicion(ai, chancellor.id) : 0;
-      const thr = Math.min(0.65, 0.50 + s.round * 0.015) * diff;
+      const thr = Math.min(0.60, 0.45 + s.round * 0.015) * diff;
       const risk = ai.personality === "Strategic" ? 0.3 : ai.personality === "Chaotic" ? 0.7 : 0.5;
 
       if ((ps * diff > thr || cs * diff > thr) && Math.random() > risk) {
@@ -1571,7 +1571,7 @@ export class GameEngine {
       }
       if (s.stateDirectives >= 3 && chancellor?.role === "Overseer") return "Nay";
       if (s.electionTracker >= 2) return "Aye";
-      return Math.random() > 0.15 ? "Aye" : "Nay";
+      return Math.random() > 0.20 ? "Aye" : "Nay";
     }
 
     if (s.stateDirectives >= 3 && chancellor?.role === "Overseer") return "Aye";
@@ -1605,7 +1605,7 @@ export class GameEngine {
     if (player.personality === "Aggressive" && player.role !== "Civil") {
       idx = hand.findIndex(p => p === "Civil");
     } else if (player.personality === "Strategic" && player.role !== "Civil") {
-      idx = stateDir < 2 ? hand.findIndex(p => p === "State") : hand.findIndex(p => p === "Civil");
+      idx = stateDir < 1 ? hand.findIndex(p => p === "State") : hand.findIndex(p => p === "Civil");
     } else if (player.personality === "Honest" || player.role === "Civil") {
       idx = hand.findIndex(p => p === "State");
     }
@@ -1631,7 +1631,7 @@ export class GameEngine {
     if (player.personality === "Aggressive" && player.role !== "Civil") {
       idx = hand.findIndex(p => p === "Civil");
     } else if (player.personality === "Strategic" && player.role !== "Civil") {
-      idx = stateDir < 3 ? hand.findIndex(p => p === "Civil") : hand.findIndex(p => p === "State");
+      idx = stateDir < 2 ? hand.findIndex(p => p === "Civil") : hand.findIndex(p => p === "State");
     } else if (player.personality === "Honest" || player.role === "Civil") {
       idx = hand.findIndex(p => p === "Civil");
     }

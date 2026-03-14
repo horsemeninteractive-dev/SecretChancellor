@@ -205,7 +205,7 @@ export const GameRoom = ({
   const pendingDeclarationRef = useRef<'President' | 'Chancellor' | null>(null);
   const chancellorSinceRef = useRef<number>(0);
   const wasChancellorRef = useRef(false);
-  const prevLastEnactedTimestamp = useRef<number>(0);
+  const prevLastEnactedTimestamp = useRef<string>('');
 
   useEffect(() => { showPolicyAnimRef.current = showPolicyAnim; }, [showPolicyAnim]);
 
@@ -254,12 +254,15 @@ export const GameRoom = ({
     if (me.isChancellor && !wasChancellorRef.current) chancellorSinceRef.current = Date.now();
     wasChancellorRef.current = !!me.isChancellor;
 
-    // Only trigger declarations once the server has registered the directive on
-    // the tracker (trackerReady=true). The animation fires on the earlier broadcast.
+    // Only trigger declarations once trackerReady flips to true.
+    // Use the same policy identity key as the animation so we fire exactly once
+    // per policy — regardless of how many broadcasts arrive afterwards.
     const trackerReady = gameState.lastEnactedPolicy?.trackerReady === true;
-    const policyTimestamp = trackerReady ? (gameState.lastEnactedPolicy?.timestamp ?? 0) : 0;
-    const policyIsNew = trackerReady && policyTimestamp > prevLastEnactedTimestamp.current;
-    if (policyIsNew) prevLastEnactedTimestamp.current = policyTimestamp;
+    const policyKey = gameState.lastEnactedPolicy
+      ? `${gameState.lastEnactedPolicy.type}-${gameState.lastEnactedPolicy.playerId ?? ''}-${Math.floor(gameState.lastEnactedPolicy.timestamp / 10000)}`
+      : '';
+    const policyIsNew = trackerReady && policyKey !== prevLastEnactedTimestamp.current;
+    if (policyIsNew) prevLastEnactedTimestamp.current = policyKey;
 
     let needed: 'President' | 'Chancellor' | null = null;
     if (policyIsNew && me.isPresident) needed = 'President';
@@ -283,7 +286,7 @@ export const GameRoom = ({
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [gameState.lastEnactedPolicy?.timestamp, gameState.lastEnactedPolicy?.trackerReady, gameState.declarations?.length, gameState.phase, showPolicyAnim]);
+  }, [gameState.lastEnactedPolicy?.trackerReady, gameState.lastEnactedPolicy?.timestamp, gameState.declarations?.length, gameState.phase, showPolicyAnim]);
 
   const handleSubmitDeclaration = () => {
     socket.emit('declarePolicies', {

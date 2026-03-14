@@ -136,9 +136,9 @@ export function updateSuspicionFromDeclarations(state: GameState): void {
     if (!ai.suspicion) continue;
 
     if (inconsistent) {
-      // Definite lie — raise both by LR ≈ 2.5
-      if (presDecl.playerId !== ai.id) nudge(ai, presDecl.playerId, 2.5);
-      if (chanDecl.playerId !== ai.id) nudge(ai, chanDecl.playerId, 2.5);
+      // Definite lie — raise both by LR ≈ 2.0
+      if (presDecl.playerId !== ai.id) nudge(ai, presDecl.playerId, 2.0);
+      if (chanDecl.playerId !== ai.id) nudge(ai, chanDecl.playerId, 2.0);
       state.log.push(`[Suspicion] Inconsistent declarations: ${presDecl.playerName} vs ${chanDecl.playerName}.`);
     } else {
       // Consistent — modest trust boost
@@ -147,7 +147,7 @@ export function updateSuspicionFromDeclarations(state: GameState): void {
     }
 
     // "All 3 were State" is a common State deflection
-    if (presDecl.sta === 3 && presDecl.playerId !== ai.id) nudge(ai, presDecl.playerId, 1.4);
+    if (presDecl.sta === 3 && presDecl.playerId !== ai.id) nudge(ai, presDecl.playerId, 1.2);
 
     // Chancellor claiming 2-State hand is exculpatory for them but pins president
     if (chanDecl.sta === 2 && presDecl.sta >= 2 && presDecl.playerId !== ai.id) {
