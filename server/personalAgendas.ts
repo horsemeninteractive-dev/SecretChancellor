@@ -27,7 +27,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "The election tracker must hit 3 and trigger a chaos policy at least once.",
     evaluate: (s, _pid) => {
       const fired = s.roundHistory?.some(r => r.chaos) ?? false;
-      return fired ? "completed" : "failed";
+      if (fired) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -35,8 +36,10 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     id: "the_purist",
     name: "The Purist",
     description: "At least 3 Civil directives must be enacted by the time the game ends.",
-    evaluate: (s, _pid) =>
-      s.civilDirectives >= 3 ? "completed" : "failed",
+    evaluate: (s, _pid) => {
+      if (s.civilDirectives >= 3) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
+    },
   },
 
   {
@@ -65,7 +68,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
         const majority = ayes > nays ? "Aye" : "Nay";
         if (myEntry.vote !== majority) count++;
       }
-      return count >= 3 ? "completed" : "failed";
+      if (count >= 3) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -74,17 +78,19 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     name: "The Dove",
     description: "Vote Aye in every round you cast a vote.",
     evaluate: (s, pid) => {
+      let votedAny = false;
       for (const r of s.roundHistory ?? []) {
         if (r.chaos) continue;
         const myEntry = r.votes.find(v => v.playerId === pid);
         if (!myEntry) continue; // detained or dead — skip
+        votedAny = true;
         if (myEntry.vote !== "Aye") return "failed";
       }
-      // Must have voted in at least one round to complete
-      const votedAny = (s.roundHistory ?? []).some(r =>
-        !r.chaos && r.votes.some(v => v.playerId === pid)
-      );
-      return votedAny ? "completed" : "failed";
+      
+      if (s.phase === "GameOver") {
+        return votedAny ? "completed" : "failed";
+      }
+      return "unresolved";
     },
   },
 
@@ -96,7 +102,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
       const count = (s.roundHistory ?? []).filter(r =>
         !r.chaos && r.votes.some(v => v.playerId === pid && v.vote === "Nay")
       ).length;
-      return count >= 3 ? "completed" : "failed";
+      if (count >= 3) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -109,7 +116,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
         r.failed && !r.chaos &&
         r.votes.some(v => v.playerId === pid && v.vote === "Nay")
       ).length;
-      return count >= 2 ? "completed" : "failed";
+      if (count >= 2) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -119,7 +127,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "The game must end before round (player count + 3).",
     evaluate: (s, _pid) => {
       const threshold = s.players.length + 3;
-      return s.round < threshold ? "completed" : "failed";
+      if (s.round >= threshold) return "failed";
+      return s.phase === "GameOver" ? "completed" : "unresolved";
     },
   },
 
@@ -129,7 +138,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "The game must last at least (player count + 6) rounds.",
     evaluate: (s, _pid) => {
       const threshold = s.players.length + 6;
-      return s.round >= threshold ? "completed" : "failed";
+      if (s.round >= threshold) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -143,7 +153,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
         r.policy === "Civil" &&
         r.votes.some(v => v.playerId === pid && v.vote === "Aye")
       ).length;
-      return count >= 3 ? "completed" : "failed";
+      if (count >= 3) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -155,7 +166,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
       const count = (s.roundHistory ?? []).filter(r =>
         !r.chaos && r.chancellorId === pid
       ).length;
-      return count >= 2 ? "completed" : "failed";
+      if (count >= 2) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -168,7 +180,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
         r.failed && !r.chaos &&
         (r.presidentId === pid || r.chancellorId === pid)
       );
-      return found ? "completed" : "failed";
+      if (found) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -179,7 +192,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     evaluate: (s, pid) => {
       const player = s.players.find(p => p.id === pid);
       const enacted = (player?.stateEnactments ?? 0) + (player?.civilEnactments ?? 0);
-      return enacted >= 2 ? "completed" : "failed";
+      if (enacted >= 2) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -191,7 +205,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
       const served = (s.roundHistory ?? []).some(r =>
         !r.failed && !r.chaos && r.chancellorId === pid
       );
-      return served ? "completed" : "failed";
+      if (served) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -201,7 +216,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "No chaos policy is enacted at any point during the game.",
     evaluate: (s, _pid) => {
       const chaosFired = s.roundHistory?.some(r => r.chaos) ?? false;
-      return chaosFired ? "failed" : "completed";
+      if (chaosFired) return "failed";
+      return s.phase === "GameOver" ? "completed" : "unresolved";
     },
   },
 
@@ -209,8 +225,10 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     id: "the_mandate",
     name: "The Mandate",
     description: "At least 4 State directives must be enacted by the time the game ends.",
-    evaluate: (s, _pid) =>
-      s.stateDirectives >= 4 ? "completed" : "failed",
+    evaluate: (s, _pid) => {
+      if (s.stateDirectives >= 4) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
+    },
   },
 
   {
@@ -219,7 +237,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "Enact a Civil directive as Chancellor.",
     evaluate: (s, pid) => {
       const player = s.players.find(p => p.id === pid);
-      return (player?.civilEnactments ?? 0) >= 1 ? "completed" : "failed";
+      if ((player?.civilEnactments ?? 0) >= 1) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -239,7 +258,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
       for (let i = 1; i < votes.length; i++) {
         if (votes[i] !== votes[i - 1]) switches++;
       }
-      return switches >= 4 ? "completed" : "failed";
+      if (switches >= 4) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 
@@ -249,9 +269,12 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "More than half of all rounds must result in a policy being successfully enacted.",
     evaluate: (s, _pid) => {
       const history = s.roundHistory ?? [];
-      if (history.length === 0) return "failed";
+      if (history.length === 0) return "unresolved";
       const productive = history.filter(r => !r.failed && !r.chaos).length;
-      return productive > history.length / 2 ? "completed" : "failed";
+      if (s.phase === "GameOver") {
+        return productive > history.length / 2 ? "completed" : "failed";
+      }
+      return "unresolved";
     },
   },
 
@@ -261,7 +284,10 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
     description: "The game must end with both policy tracks within 2 directives of each other.",
     evaluate: (s, _pid) => {
       const diff = Math.abs(s.civilDirectives - s.stateDirectives);
-      return diff <= 2 ? "completed" : "failed";
+      if (s.phase === "GameOver") {
+        return diff <= 2 ? "completed" : "failed";
+      }
+      return "unresolved";
     },
   },
 
@@ -277,7 +303,8 @@ export const AGENDA_DEFINITIONS: AgendaDefinition[] = [
         const nays = r.votes.filter(v => v.vote === "Nay").length;
         return (ayes - nays) === 1;
       });
-      return found ? "completed" : "failed";
+      if (found) return "completed";
+      return s.phase === "GameOver" ? "failed" : "unresolved";
     },
   },
 ];
@@ -336,11 +363,7 @@ export function getPlayerAgenda(
   const def = AGENDA_MAP.get(player.personalAgenda);
   if (!def) return undefined;
 
-  // Only evaluate status mid-game as 'unresolved' unless game is over
-  const status: AgendaStatus =
-    state.phase === "GameOver"
-      ? def.evaluate(state, playerId)
-      : "unresolved";
+  const status = def.evaluate(state, playerId);
 
   return { id: def.id, name: def.name, description: def.description, status };
 }
