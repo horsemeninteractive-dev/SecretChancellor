@@ -1,7 +1,7 @@
 import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { X, Eye, Scale } from 'lucide-react';
-import { Role, PrivateInfo, TitleRole } from '../../../types';
+import { X, Eye, Scale, Target, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Role, PrivateInfo, TitleRole, AgendaStatus } from '../../../types';
 import { OverseerIcon } from '../../icons';
 import { cn } from '../../../lib/utils';
 
@@ -18,6 +18,27 @@ const TITLE_ROLE_DESCRIPTIONS: Record<TitleRole, string> = {
   Handler: "Swap the next two players in the presidential order.",
   Auditor: "Inspect the discarded policies.",
   Interdictor: "Detain a player for one round, preventing them from being nominated or voting.",
+};
+
+const AgendaStatusBadge = ({ status }: { status: AgendaStatus }) => {
+  if (status === 'completed') return (
+    <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-900/30 border border-emerald-500/40 text-emerald-400 text-[10px] font-mono uppercase tracking-widest shrink-0">
+      <CheckCircle className="w-3 h-3" />
+      <span>Complete</span>
+    </div>
+  );
+  if (status === 'failed') return (
+    <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-900/30 border border-red-500/40 text-red-400 text-[10px] font-mono uppercase tracking-widest shrink-0">
+      <XCircle className="w-3 h-3" />
+      <span>Failed</span>
+    </div>
+  );
+  return (
+    <div className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#333] border border-[#444] text-[#888] text-[10px] font-mono uppercase tracking-widest shrink-0">
+      <Clock className="w-3 h-3" />
+      <span>Active</span>
+    </div>
+  );
 };
 
 export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps) => (
@@ -39,7 +60,8 @@ export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps
             </div>
 
             {privateInfo ? (
-              <div className="space-y-[2vh] flex-1 flex flex-col min-h-0">
+              <div className="space-y-[2vh] flex-1 flex flex-col min-h-0 overflow-y-auto custom-scrollbar pr-1">
+                {/* Role card */}
                 <div className={cn(
                   'p-[2vh] rounded-2xl border-2 text-center space-y-[1vh] shrink-0',
                   privateInfo.role === 'Civil' ? 'bg-blue-900/10 border-blue-500/30' : 'bg-red-900/10 border-red-500/30'
@@ -67,6 +89,49 @@ export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps
                   </div>
                 </div>
 
+                {/* Personal Agenda */}
+                <div className="space-y-[1vh] shrink-0">
+                  <div className="text-responsive-xs uppercase tracking-widest text-[#666] border-b border-[#222] pb-1">Personal Agenda</div>
+                  <div className={cn(
+                    'p-[1.5vh] rounded-xl border',
+                    privateInfo.personalAgenda?.status === 'completed'
+                      ? 'bg-emerald-900/10 border-emerald-500/20'
+                      : privateInfo.personalAgenda?.status === 'failed'
+                        ? 'bg-red-900/10 border-red-500/20'
+                        : 'bg-[#222] border-[#333]'
+                  )}>
+                    {privateInfo.personalAgenda ? (
+                      <div className="space-y-[1vh]">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <Target className={cn(
+                              'w-[2vh] h-[2vh] shrink-0 mt-0.5',
+                              privateInfo.personalAgenda.status === 'completed' ? 'text-emerald-400'
+                              : privateInfo.personalAgenda.status === 'failed' ? 'text-red-400'
+                              : 'text-[#888]'
+                            )} />
+                            <span className="text-responsive-sm font-bold text-white uppercase tracking-wider">
+                              {privateInfo.personalAgenda.name}
+                            </span>
+                          </div>
+                          <AgendaStatusBadge status={privateInfo.personalAgenda.status} />
+                        </div>
+                        <p className="text-responsive-xs text-[#888] leading-relaxed pl-[2.5vh]">
+                          {privateInfo.personalAgenda.description}
+                        </p>
+                        {privateInfo.personalAgenda.status === 'unresolved' && (
+                          <p className="text-[10px] text-[#555] italic pl-[2.5vh]">
+                            Completing this awards bonus XP and IP equal to a faction win.
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-responsive-sm text-[#666] italic">No agenda assigned.</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Title Role */}
                 <div className="space-y-[1vh] shrink-0">
                   <div className="text-responsive-xs uppercase tracking-widest text-[#666] border-b border-[#222] pb-1">Title Role</div>
                   <div className="bg-[#222] p-[1.5vh] rounded-xl">
@@ -81,10 +146,11 @@ export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps
                   </div>
                 </div>
 
+                {/* State faction */}
                 {privateInfo.stateAgents && (
-                  <div className="space-y-[1vh] flex-1 min-h-0 flex flex-col">
-                    <div className="text-responsive-xs uppercase tracking-widest text-[#666] border-b border-[#222] pb-1 shrink-0">State Faction</div>
-                    <div className="space-y-1 overflow-hidden">
+                  <div className="space-y-[1vh] shrink-0">
+                    <div className="text-responsive-xs uppercase tracking-widest text-[#666] border-b border-[#222] pb-1">State Faction</div>
+                    <div className="space-y-1">
                       {privateInfo.stateAgents.map(f => (
                         <div key={f.id} className="flex items-center justify-between py-0.5">
                           <div className="flex items-center gap-2">
@@ -125,3 +191,5 @@ export const DossierModal = ({ isOpen, onClose, privateInfo }: DossierModalProps
     )}
   </AnimatePresence>
 );
+
+

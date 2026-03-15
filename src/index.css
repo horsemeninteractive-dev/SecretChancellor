@@ -72,11 +72,11 @@
   }
 
   @keyframes shine {
-    0% { left: -100%; }
-    100% { left: 100%; }
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
   }
   .animate-shine {
-    animation: shine 2s linear infinite;
+    animation: shine 3s ease-in-out infinite;
   }
 
   .bg-texture {

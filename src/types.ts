@@ -1,10 +1,42 @@
 export type Role = 'Civil' | 'State' | 'Overseer';
 export type TitleRole = 'Assassin' | 'Strategist' | 'Broker' | 'Handler' | 'Auditor' | 'Interdictor';
 
+export type PersonalAgendaId =
+  | 'chaos_agent'
+  | 'the_purist'
+  | 'the_dissenter'
+  | 'the_dove'
+  | 'the_hawk'
+  | 'stonewalled'
+  | 'short_session'
+  | 'the_long_game'
+  | 'the_loyalist'
+  | 'nominated'
+  | 'deadlock'
+  | 'prolific'
+  | 'the_veteran'
+  | 'unity'
+  | 'the_mandate'
+  | 'clean_sweep'
+  | 'the_weathervane'
+  | 'productive_session'
+  | 'close_race'
+  | 'the_swing_vote';
+
+export type AgendaStatus = 'unresolved' | 'completed' | 'failed';
+
+export interface PersonalAgenda {
+  id: PersonalAgendaId;
+  name: string;
+  description: string;
+  status: AgendaStatus;
+}
+
 export interface PrivateInfo {
   role: Role;
   stateAgents?: { id: string; name: string; role: Role }[];
   titleRole?: TitleRole;
+  personalAgenda?: PersonalAgenda;
 }
 export type Policy = 'Civil' | 'State';
 export type GamePhase = 
@@ -117,6 +149,10 @@ export interface Player {
   suspicion?: { [playerId: string]: number };
   // How many State directives this player has enacted as Chancellor (observable)
   stateEnactments?: number;
+  // How many Civil directives this player has enacted as Chancellor
+  civilEnactments?: number;
+  // Personal agenda assigned at game start
+  personalAgenda?: PersonalAgendaId;
   alliances?: { [playerId: string]: number };
   difficulty?: 'Casual' | 'Normal' | 'Elite';
 }
@@ -205,6 +241,8 @@ export interface GameState {
     round: number;
     presidentName: string;
     chancellorName: string;
+    presidentId?: string;
+    chancellorId?: string;
     policy?: Policy;
     failed?: boolean;
     failReason?: 'vote' | 'veto';

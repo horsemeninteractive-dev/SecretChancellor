@@ -32,6 +32,12 @@ import {
 } from "./suspicion.ts";
 import { getUserById, saveUser, incrementGlobalWin } from "./supabaseService.ts";
 import { calculateXpGain } from "../src/lib/xp.ts";
+import {
+  assignPersonalAgendas,
+  evaluateAllAgendas,
+  getPlayerAgenda,
+  AGENDA_MAP,
+} from "./personalAgendas.ts";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -104,11 +110,11 @@ export class GameEngine {
         .map(pl => ({ id: pl.id, name: pl.name, role: pl.role! }));
 
       if (p.role === "State") {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents, titleRole: p.titleRole });
+        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents, titleRole: p.titleRole, personalAgenda: getPlayerAgenda(state, p.id) });
       } else if (p.role === "Overseer" && state.players.length <= 6) {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents, titleRole: p.titleRole });
+        this.io.to(p.id).emit("privateInfo", { role: p.role, stateAgents, titleRole: p.titleRole, personalAgenda: getPlayerAgenda(state, p.id) });
       } else {
-        this.io.to(p.id).emit("privateInfo", { role: p.role, titleRole: p.titleRole });
+        this.io.to(p.id).emit("privateInfo", { role: p.role, titleRole: p.titleRole, personalAgenda: getPlayerAgenda(state, p.id) });
       }
     }
   }
@@ -369,6 +375,7 @@ export class GameEngine {
     const roles = assignRoles(state.players.length);
     state.players.forEach((p, i) => (p.role = roles[i]));
     this.assignTitleRoles(state);
+    assignPersonalAgendas(state);
     initializeSuspicion(state);
 
     state.presidentialOrder = state.players.map(p => p.id);
@@ -709,6 +716,8 @@ export class GameEngine {
       round:          s.round,
       presidentName:  presPlayer?.name ?? "?",
       chancellorName: chanPlayer?.name ?? "?",
+      presidentId:    presPlayer?.id,
+      chancellorId:   chanPlayer?.id,
       failed:         true,
       failReason:     "vote",
       votes: Object.entries(votes).map(([pid, v]) => {
@@ -751,10 +760,20 @@ export class GameEngine {
       if (policy === "Civil") {
         st.civilDirectives++;
         addLog(st, "A Civil directive was enacted.");
+        // Track chancellor's civil enactments
+        if (!isChaos && playerId) {
+          const chancellor = st.players.find(p => p.id === playerId);
+          if (chancellor) chancellor.civilEnactments = (chancellor.civilEnactments ?? 0) + 1;
+        }
       } else {
         st.stateDirectives++;
         addLog(st, `A State directive was enacted. Total: ${st.stateDirectives}`);
         if (st.stateDirectives >= 5) st.vetoUnlocked = true;
+        // Track chancellor's state enactments
+        if (!isChaos && playerId) {
+          const chancellor = st.players.find(p => p.id === playerId);
+          if (chancellor) chancellor.stateEnactments = (chancellor.stateEnactments ?? 0) + 1;
+        }
       }
 
       // Mark tracker as updated. Clients watch trackerReady directly to
@@ -1274,10 +1293,14 @@ export class GameEngine {
       s.vetoRequested      = false;
 
       if (!s.roundHistory) s.roundHistory = [];
+      const vetoPresident  = s.players.find(p => p.isPresident);
+      const vetoChancellor = s.players.find(p => p.isChancellor);
       s.roundHistory.push({
         round:          s.round,
-        presidentName:  s.players.find(p => p.isPresident)?.name  ?? "?",
-        chancellorName: s.players.find(p => p.isChancellor)?.name ?? "?",
+        presidentName:  vetoPresident?.name  ?? "?",
+        chancellorName: vetoChancellor?.name ?? "?",
+        presidentId:    vetoPresident?.id,
+        chancellorId:   vetoChancellor?.id,
         failed: true, failReason: "veto", votes: [],
       });
 
@@ -1343,7 +1366,7 @@ export class GameEngine {
       const won = (winningSide === "Civil" && p.role === "Civil") ||
                   (winningSide === "State"  && (p.role === "State" || p.role === "Overseer"));
 
-      const xpGain = calculateXpGain({ win: won, kills: p.role === 'Overseer' ? p.stateEnactments || 0 : 0 }); // Simplified kill count
+      const xpGain = calculateXpGain({ win: won, kills: p.role === 'Overseer' ? p.stateEnactments || 0 : 0 });
       user.stats.xp += xpGain;
 
       if (won) {
@@ -1354,6 +1377,18 @@ export class GameEngine {
         user.stats.losses++;
         user.stats.elo    = s.mode === "Ranked" ? Math.max(0, user.stats.elo - 20) : user.stats.elo;
         user.stats.points += s.mode === "Ranked" ? 25 : 10;
+      }
+
+      // Personal agenda reward — same XP value as a faction win, plus IP
+      if (p.personalAgenda) {
+        const agendaDef = AGENDA_MAP.get(p.personalAgenda);
+        if (agendaDef) {
+          const agendaStatus = agendaDef.evaluate(s, p.id);
+          if (agendaStatus === "completed") {
+            user.stats.xp     += 100; // equal to a faction win bonus
+            user.stats.points += s.mode === "Ranked" ? 40 : 20; // bonus IP
+          }
+        }
       }
 
       const level = Math.floor(user.stats.gamesPlayed / 5) + 1;
@@ -1393,6 +1428,8 @@ export class GameEngine {
       round:          s.round,
       presidentName:  pres.name,
       chancellorName: chan.name,
+      presidentId:    pres.id,
+      chancellorId:   chan.id,
       policy,
       votes: Object.entries(s.lastGovernmentVotes ?? {}).map(([pid, v]) => {
         const pl = s.players.find(p => p.id === pid);

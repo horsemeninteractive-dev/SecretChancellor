@@ -609,6 +609,8 @@ export const GameRoom = ({
 
           <GameOverModal
             gameState={gameState}
+            privateInfo={privateInfo}
+            myId={socket.id}
             onPlayAgain={onPlayAgain}
             onLeave={onLeaveRoom}
             onOpenLog={() => setIsLogOpen(true)}

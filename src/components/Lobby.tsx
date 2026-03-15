@@ -47,11 +47,17 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
 
   const fetchGlobalStats = async () => {
     try {
-      const response = await fetch('/api/global-stats');
+      const response = await fetch(`${window.location.origin}/api/global-stats`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      setGlobalStats(data);
+      if (data && typeof data.civilWins === 'number') {
+        setGlobalStats(data);
+      }
     } catch (err) {
-      console.error('Failed to fetch global stats', err);
+      // Only log once to avoid console spam
+      if (globalStats.civilWins === 0 && globalStats.stateWins === 0) {
+        console.error('Failed to fetch global stats', err);
+      }
     }
   };
 
@@ -88,7 +94,7 @@ export const Lobby: React.FC<LobbyProps> = ({ user, onJoinRoom, onLogout, onOpen
           <div className="min-w-0">
             <div className="flex items-baseline gap-2">
               <h1 className="text-responsive-sm sm:text-responsive-xl font-thematic text-white tracking-wide leading-none truncate">The Assembly</h1>
-              <span className="text-[8px] font-mono text-red-500/60 border border-red-900/40 rounded px-1 py-0.5 leading-none shrink-0">v0.9.2</span>
+              <span className="text-[8px] font-mono text-red-500/60 border border-red-900/40 rounded px-1 py-0.5 leading-none shrink-0">v0.9.3</span>
             </div>
             <p className="text-responsive-xs uppercase tracking-widest text-[#666] font-mono mt-0.5">Assembly Lobby</p>
           </div>

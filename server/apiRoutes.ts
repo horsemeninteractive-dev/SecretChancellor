@@ -297,8 +297,13 @@ export function registerRoutes(
   });
 
   app.get("/api/global-stats", async (_req: Request, res: Response) => {
-    const stats = await getGlobalStats();
-    res.json(stats);
+    try {
+      const stats = await getGlobalStats();
+      res.json(stats || { civilWins: 0, stateWins: 0 });
+    } catch (err) {
+      console.error("Error fetching global stats:", err);
+      res.json({ civilWins: 0, stateWins: 0 });
+    }
   });
 
   app.get("/api/rejoin-info", (req: Request, res: Response) => {
